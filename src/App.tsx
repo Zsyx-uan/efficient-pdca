@@ -1,61 +1,277 @@
-import { useEffect, useMemo, useState } from 'react'
-import { ArrowUpRight, BookOpen, Bot, BrainCircuit, Check, ChevronRight, Download, FilePlus2, Grid2X2, Library, Lightbulb, Network, NotebookPen, Plus, Search, Sparkles, Star, Tags, TrendingUp, X } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ChangeEvent, FormEvent } from 'react'
+import {
+  ArrowLeft, ArrowUpRight, BookOpen, Bot, BrainCircuit, Check, ChevronRight, Download,
+  FileInput, FilePlus2, Grid2X2, Library, Link2, Network, NotebookPen, Pencil, Plus,
+  Search, Sparkles, Trash2, Upload, X,
+} from 'lucide-react'
 import './App.css'
 
 type View = 'home' | 'library' | 'cards' | 'map' | 'assistant'
-type Book = { id:string; title:string; author:string; category:string; cover:string; color:string; progress:number; cards:number; rating:number }
-type Card = { id:string; title:string; bookId:string; category:string; excerpt:string; insight:string; application:string; tags:string[]; importance:number; updated:string }
+type BookStatus = 'to-read' | 'reading' | 'done'
+type Book = {
+  id: string; title: string; author: string; category: string; status: BookStatus; rating: number
+  color: string; cover: string; sourceText: string; createdAt: string; updatedAt: string
+}
+type KnowledgeCard = {
+  id: string; bookId: string; title: string; category: string; excerpt: string; insight: string
+  application: string; tags: string[]; importance: number; relatedCardIds: string[]; createdAt: string; updatedAt: string
+}
+type GardenData = { version: 2; books: Book[]; cards: KnowledgeCard[] }
 
-const INITIAL_BOOKS: Book[] = [
-  {id:'naval',title:'纳瓦尔宝典',author:'埃里克·乔根森',category:'自我成长',cover:'N',color:'#a6b6f3',progress:100,cards:18,rating:5},
-  {id:'positioning',title:'定位',author:'艾·里斯 / 杰克·特劳特',category:'商业',cover:'定',color:'#e8a08f',progress:100,cards:24,rating:5},
-  {id:'principles',title:'原则',author:'瑞·达利欧',category:'管理',cover:'原',color:'#b4d7c3',progress:100,cards:16,rating:4},
-  {id:'thinking',title:'思考，快与慢',author:'丹尼尔·卡尼曼',category:'心理学',cover:'思',color:'#eacb89',progress:76,cards:12,rating:4},
-  {id:'innovator',title:'创新者的窘境',author:'克莱顿·克里斯坦森',category:'商业',cover:'创',color:'#9bc9d5',progress:100,cards:15,rating:5},
-  {id:'meditations',title:'沉思录',author:'马可·奥勒留',category:'哲学',cover:'沉',color:'#c4acd6',progress:63,cards:9,rating:4},
-]
-const INITIAL_CARDS: Card[] = [
-  {id:'compound',title:'复利效应',bookId:'naval',category:'财富创造',excerpt:'财富不是你劳动时赚到的钱，而是睡觉时仍在为你工作的资产。',insight:'真正值得投入的是那些能长期积累、可复制且不依赖单次努力的事情。',application:'建立内容、产品与关系等可持续增长的资产，而非只追求一次性结果。',tags:['长期主义','财富','杠杆'],importance:5,updated:'今天'},
-  {id:'specific',title:'特定知识',bookId:'naval',category:'财富创造',excerpt:'找到你独特的知识组合：它往往不是课堂里最容易教授的部分。',insight:'优势来自兴趣、天赋、经历和判断力的交集，而非和所有人竞争同一种标准技能。',application:'盘点自己反复被请教、做起来有能量的领域，持续公开表达。',tags:['能力','职业','差异化'],importance:5,updated:'昨天'},
-  {id:'mindshare',title:'用户心智',bookId:'positioning',category:'品牌定位',excerpt:'营销的战场不在产品中，而在潜在顾客的心智中。',insight:'品牌不是自我定义，而是用户在某个需求出现时首先想起你的理由。',application:'为产品选择一个清晰、聚焦、可验证的品类词，并在每次沟通中重复它。',tags:['品牌','营销','定位'],importance:5,updated:'8月17日'},
-  {id:'believability',title:'可信度加权决策',bookId:'principles',category:'决策系统',excerpt:'不要只听声音最大的观点，应让更可信的人拥有更大的决策权重。',insight:'高质量决策来自观点多样性与可追溯的判断记录，而不是权威压制。',application:'在项目复盘中记录预测、依据和结果，为领域专家逐步建立可信度档案。',tags:['决策','管理','复盘'],importance:4,updated:'8月16日'},
-  {id:'disruption',title:'破坏式创新',bookId:'innovator',category:'创新战略',excerpt:'优秀企业失败，常常不是因为管理不善，而是因为太善于服务现有客户。',insight:'新市场早期的利润率和性能都不漂亮，因此需要独立资源与耐心来培育。',application:'为探索性产品设定不同于成熟业务的指标，避免被短期 ROI 过早扼杀。',tags:['创业','战略','创新'],importance:5,updated:'8月12日'},
-  {id:'system',title:'系统一与系统二',bookId:'thinking',category:'认知偏差',excerpt:'快速直觉带来效率，也会让我们在不知不觉中跳过检验。',insight:'重要判断应故意创造慢下来的流程，以对抗第一反应的过度自信。',application:'在高风险决策中引入反证问题：什么事实会让我承认自己错了？',tags:['思维','决策','偏差'],importance:4,updated:'8月10日'},
-]
-const covers = ['navy','coral','mint','gold','sky','purple']
-const STORE = 'knowledge-garden-v1'
+const STORAGE_KEY = 'knowledge-garden-v2'
+const COLORS = ['#9eb0f0', '#e99b88', '#acd6bb', '#eccb85', '#92c9d8', '#c3a9d5']
+const BOOK_COVERS = ['navy', 'coral', 'mint', 'gold', 'sky', 'purple']
+const now = () => new Date().toISOString()
+const uid = (prefix: string) => `${prefix}-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`
+
+const sampleData = (): GardenData => {
+  const createdAt = now()
+  const books: Book[] = [
+    { id: 'naval', title: '纳瓦尔宝典', author: '埃里克·乔根森', category: '自我成长', status: 'done', rating: 5, color: COLORS[0], cover: 'N', sourceText: '', createdAt, updatedAt: createdAt },
+    { id: 'positioning', title: '定位', author: '艾·里斯 / 杰克·特劳特', category: '商业', status: 'done', rating: 5, color: COLORS[1], cover: '定', sourceText: '', createdAt, updatedAt: createdAt },
+    { id: 'principles', title: '原则', author: '瑞·达利欧', category: '管理', status: 'done', rating: 4, color: COLORS[2], cover: '原', sourceText: '', createdAt, updatedAt: createdAt },
+  ]
+  const cards: KnowledgeCard[] = [
+    { id: 'compound', bookId: 'naval', title: '复利效应', category: '财富创造', excerpt: '财富不是你劳动时赚到的钱，而是睡觉时仍在为你工作的资产。', insight: '真正值得投入的是那些能长期积累、可复制且不依赖单次努力的事情。', application: '建立内容、产品与关系等可持续增长的资产，而非只追求一次性结果。', tags: ['长期主义', '财富', '杠杆'], importance: 5, relatedCardIds: ['mindshare'], createdAt, updatedAt: createdAt },
+    { id: 'specific', bookId: 'naval', title: '特定知识', category: '财富创造', excerpt: '找到你独特的知识组合：它往往不是课堂里最容易教授的部分。', insight: '优势来自兴趣、天赋、经历和判断力的交集，而非和所有人竞争同一种标准技能。', application: '盘点自己反复被请教、做起来有能量的领域，持续公开表达。', tags: ['能力', '职业', '差异化'], importance: 5, relatedCardIds: ['compound'], createdAt, updatedAt: createdAt },
+    { id: 'mindshare', bookId: 'positioning', title: '用户心智', category: '品牌定位', excerpt: '营销的战场不在产品中，而在潜在顾客的心智中。', insight: '品牌不是自我定义，而是用户在某个需求出现时首先想起你的理由。', application: '为产品选择一个清晰、聚焦、可验证的品类词，并在每次沟通中重复它。', tags: ['品牌', '营销', '定位'], importance: 5, relatedCardIds: ['compound'], createdAt, updatedAt: createdAt },
+    { id: 'believability', bookId: 'principles', title: '可信度加权决策', category: '决策系统', excerpt: '不要只听声音最大的观点，应让更可信的人拥有更大的决策权重。', application: '在项目复盘中记录预测、依据和结果，为领域专家逐步建立可信度档案。', insight: '高质量决策来自观点多样性与可追溯的判断记录，而不是权威压制。', tags: ['决策', '管理', '复盘'], importance: 4, relatedCardIds: [], createdAt, updatedAt: createdAt },
+  ]
+  return { version: 2, books, cards }
+}
+
+function readData(): GardenData {
+  try {
+    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '')
+    if (raw?.books && raw?.cards) {
+      const books = raw.books.map((book: Partial<Book>, index: number): Book => ({
+        id: book.id ?? uid('book'), title: book.title ?? '未命名书籍', author: book.author ?? '未知作者', category: book.category ?? '未分类',
+        status: book.status ?? ((book as Partial<Book> & { progress?: number }).progress === 100 ? 'done' : 'reading'), rating: Number(book.rating ?? 0), color: book.color ?? COLORS[index % COLORS.length],
+        cover: book.cover ?? (book.title?.slice(0, 1) || '书'), sourceText: book.sourceText ?? '', createdAt: book.createdAt ?? now(), updatedAt: book.updatedAt ?? now(),
+      }))
+      const cards = raw.cards.map((card: Partial<KnowledgeCard>): KnowledgeCard => ({
+        id: card.id ?? uid('card'), bookId: card.bookId ?? books[0]?.id ?? '', title: card.title ?? '未命名卡片', category: card.category ?? '我的思考',
+        excerpt: card.excerpt ?? '', insight: card.insight ?? '', application: card.application ?? '', tags: card.tags ?? [], importance: Number(card.importance ?? 3),
+        relatedCardIds: card.relatedCardIds ?? [], createdAt: card.createdAt ?? now(), updatedAt: card.updatedAt ?? now(),
+      }))
+      return { version: 2, books, cards }
+    }
+  } catch { /* create a clean starter library */ }
+  return sampleData()
+}
+
+function makeCardsFromText(bookId: string, text: string): KnowledgeCard[] {
+  const normalized = text.replace(/\r\n?/g, '\n').replace(/\\n/g, '\n').trim()
+  if (!normalized) return []
+
+  const blocks = normalized
+    .split(/\n{2,}|(?<=[。！？!?；;])\s*/)
+    .map((item) => item.replace(/^[-*#\d.、\s]+/, '').trim())
+    .filter(Boolean)
+    .flatMap((item) => item.length <= 360 ? [item] : item.match(/.{1,360}(?:[。！？!?；;]|$)/g) ?? [item])
+    .filter((item) => item.length >= 12)
+    .slice(0, 12)
+
+  const sourceBlocks = blocks.length ? blocks : [normalized.slice(0, 360)]
+  const createdAt = now()
+  return sourceBlocks.map((block, index) => {
+    const title = block.replace(/[。！？!?；;].*/, '').slice(0, 22) || `导入观点 ${index + 1}`
+    return { id: uid('card'), bookId, title, category: '导入内容', excerpt: block, insight: '待补充：这段内容对我意味着什么？', application: '待补充：我将在哪个真实场景里验证它？', tags: ['待整理'], importance: 3, relatedCardIds: [], createdAt, updatedAt: createdAt }
+  })
+}
 
 export default function App() {
-  const [view,setView] = useState<View>('home'), [books,setBooks] = useState<Book[]>(INITIAL_BOOKS), [cards,setCards] = useState<Card[]>(INITIAL_CARDS)
-  const [query,setQuery] = useState(''), [activeBook,setActiveBook] = useState('all'), [selected,setSelected] = useState<Card | null>(null)
-  const [addBook,setAddBook] = useState(false), [addCard,setAddCard] = useState(false), [toast,setToast] = useState('')
-  const [question,setQuestion] = useState(''), [answer,setAnswer] = useState('')
-  useEffect(()=>{ try { const saved=JSON.parse(localStorage.getItem(STORE)||''); if(saved.books) setBooks(saved.books); if(saved.cards) setCards(saved.cards) } catch {} },[])
-  useEffect(()=>localStorage.setItem(STORE,JSON.stringify({books,cards})),[books,cards])
-  const bookFor=(id:string)=>books.find(b=>b.id===id)
-  const foundBooks=useMemo(()=>books.filter(b=>(activeBook==='all'||b.id===activeBook)&&(`${b.title} ${b.author} ${b.category}`).toLowerCase().includes(query.toLowerCase())),[books,query,activeBook])
-  const foundCards=useMemo(()=>cards.filter(c=>(activeBook==='all'||c.bookId===activeBook)&&(`${c.title} ${c.insight} ${c.tags.join(' ')} ${bookFor(c.bookId)?.title||''}`).toLowerCase().includes(query.toLowerCase())),[cards,query,activeBook])
-  const notify=(text:string)=>{ setToast(text); setTimeout(()=>setToast(''),2200) }
-  const saveBook=(title:string,author:string,category:string)=>{ const b={id:`b-${Date.now()}`,title,author:author||'未知作者',category,cover:title[0],color:['#a6b6f3','#e8a08f','#b4d7c3','#eacb89'][books.length%4],progress:0,cards:0,rating:0}; setBooks(x=>[b,...x]); setActiveBook(b.id); setAddBook(false); setView('library'); notify('新书已加入你的书架') }
-  const saveCard=(title:string,bookId:string,insight:string)=>{ const c={id:`c-${Date.now()}`,title,bookId,category:'我的思考',excerpt:insight,insight,application:'把这个观点放进真实项目中检验，并在之后记录反馈。',tags:['我的笔记'],importance:4,updated:'刚刚'}; setCards(x=>[c,...x]); setBooks(x=>x.map(b=>b.id===bookId?{...b,cards:b.cards+1}:b));setSelected(c);setAddCard(false);setView('cards');notify('知识卡片已保存') }
-  const download=()=>{ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify({exportedAt:new Date().toISOString(),books,cards},null,2)],{type:'application/json'}));a.download='my-knowledge-garden.json';a.click();notify('知识库备份已下载') }
-  const ask=(input=question)=>{ if(!input.trim()) return; const terms=input; const related=cards.filter(c=>terms.includes('品牌')?c.tags.includes('品牌')||c.tags.includes('营销'):terms.includes('创业')?c.tags.includes('创业')||c.tags.includes('战略'):terms.includes('决策')?c.tags.includes('决策'):true).slice(0,3); const source=[...new Set(related.map(c=>bookFor(c.bookId)?.title))].join('、'); setAnswer(related.length?`我在你的知识库中找到了 ${related.length} 个相关观点，主要来自《${source}》。\n\n${related.map(c=>`「${c.title}」强调${c.insight}`).join('；')}。\n\n建议：把这些原则应用到一个正在推进的真实项目中，并为结果建立复盘卡片。`:'还没有找到直接相关的卡片。你可以先创建一张卡片，或使用更具体的关键词提问。') }
-  const nav:[View,string,typeof Grid2X2][]=[['home','知识大厅',Grid2X2],['library','我的书架',Library],['cards','知识卡片',NotebookPen],['map','知识地图',Network],['assistant','AI 助手',Bot]]
-  return <main className="app-shell"><aside className="sidebar"><div className="brand"><span className="brand-mark"><BrainCircuit size={20}/></span><span>知知<b>KNOWLEDGE GARDEN</b></span></div><nav>{nav.map(([id,label,Icon])=><button key={id} className={`nav-item ${view===id?'is-active':''}`} onClick={()=>setView(id)}><Icon size={18}/>{label}</button>)}</nav><hr/><p className="side-label">我的领域</p>{['商业','自我成长','管理','心理学','哲学'].map((name,i)=><button className="area-item" key={name} onClick={()=>{setView('library');setQuery(name)}}><i className={`dot d${i}`}/>{name}<span>{books.filter(b=>b.category===name).length}</span></button>)}<div className="side-bottom"><button className="backup" onClick={download}><Download size={16}/><span><b>你的知识，始终归你</b><small>下载本地备份</small></span></button><div className="profile"><span>Z</span><div><b>我的知识花园</b><small>离线优先 · 已保存</small></div></div></div></aside>
-  <section className="main"><header><div className="mobile-brand"><BrainCircuit size={20}/> 知知</div><label className="search"><Search size={17}/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="搜索书籍、观点或标签…"/><kbd>⌘ K</kbd></label><button className="add" onClick={()=>setAddBook(true)}><Plus size={17}/> 新建</button></header><div className="page">
-  {view==='home'&&<Home books={books} cards={cards} open={setSelected} to={setView} add={()=>setAddCard(true)}/>} {view==='library'&&<LibraryPage books={foundBooks} all={books} active={activeBook} choose={setActiveBook} add={()=>setAddBook(true)}/>} {view==='cards'&&<CardsPage cards={foundCards} books={books} open={setSelected} add={()=>setAddCard(true)}/>} {view==='map'&&<MapPage cards={cards} books={books} open={c=>{setSelected(c);setView('cards')}}/>} {view==='assistant'&&<Assistant question={question} answer={answer} setQuestion={setQuestion} ask={ask} total={cards.length}/>}</div></section>
-  {selected&&<Drawer card={selected} book={bookFor(selected.bookId)} close={()=>setSelected(null)}/>} {addBook&&<BookModal close={()=>setAddBook(false)} save={saveBook}/>} {addCard&&<CardModal books={books} close={()=>setAddCard(false)} save={saveCard}/>} {toast&&<div className="toast"><Check size={15}/>{toast}</div>}</main>
+  const initial = useMemo(() => readData(), [])
+  const [books, setBooks] = useState<Book[]>(initial.books)
+  const [cards, setCards] = useState<KnowledgeCard[]>(initial.cards)
+  const [view, setView] = useState<View>('home')
+  const [query, setQuery] = useState('')
+  const [activeBookId, setActiveBookId] = useState('all')
+  const [bookModal, setBookModal] = useState<Book | 'new' | null>(null)
+  const [cardModal, setCardModal] = useState<KnowledgeCard | 'new' | null>(null)
+  const [selectedBook, setSelectedBook] = useState<Book | null>(null)
+  const [selectedCard, setSelectedCard] = useState<KnowledgeCard | null>(null)
+  const [assistantQuestion, setAssistantQuestion] = useState('')
+  const [toast, setToast] = useState('')
+  const importRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 2, books, cards })) }, [books, cards])
+  const bookById = (id: string) => books.find((book) => book.id === id)
+  const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2600) }
+  const cardCount = (bookId: string) => cards.filter((card) => card.bookId === bookId).length
+
+  const filteredBooks = books.filter((book) => `${book.title} ${book.author} ${book.category}`.toLowerCase().includes(query.toLowerCase()) && (activeBookId === 'all' || activeBookId === book.id))
+  const filteredCards = cards.filter((card) => `${card.title} ${card.category} ${card.excerpt} ${card.insight} ${card.tags.join(' ')} ${bookById(card.bookId)?.title ?? ''}`.toLowerCase().includes(query.toLowerCase()) && (activeBookId === 'all' || activeBookId === card.bookId))
+
+  function saveBook(draft: Omit<Book, 'id' | 'color' | 'cover' | 'createdAt' | 'updatedAt'> & { id?: string }) {
+    if (draft.id) {
+      const { id, ...changes } = draft
+      const updatedAt = now()
+      setBooks((current) => current.map((book) => book.id === id ? { ...book, ...changes, updatedAt } : book))
+      setSelectedBook((book) => book?.id === id ? { ...book, ...changes, updatedAt } : book)
+      notify('书籍信息已更新')
+    } else {
+      const id = uid('book')
+      const book: Book = { ...draft, id, color: COLORS[books.length % COLORS.length], cover: draft.title.slice(0, 1), createdAt: now(), updatedAt: now() }
+      setBooks((current) => [book, ...current])
+      if (draft.sourceText.trim()) {
+        const generated = makeCardsFromText(id, draft.sourceText)
+        setCards((current) => [...generated, ...current])
+        notify(`书籍已导入，并生成 ${generated.length} 张待整理卡片`)
+      } else notify('书籍已加入书架')
+      setSelectedBook(book)
+      setView('library')
+    }
+    setBookModal(null)
+  }
+
+  function openNewCard() {
+    if (!books.length) { notify('请先创建一本书，再添加知识卡片'); setBookModal('new'); return }
+    setCardModal('new')
+  }
+
+  function deleteBook(book: Book) {
+    if (!window.confirm(`删除《${book.title}》以及其全部知识卡片？此操作无法撤销。`)) return
+    const removedCardIds = cards.filter((card) => card.bookId === book.id).map((card) => card.id)
+    setBooks((current) => current.filter((item) => item.id !== book.id))
+    setCards((current) => current.filter((card) => card.bookId !== book.id).map((card) => ({ ...card, relatedCardIds: card.relatedCardIds.filter((id) => !removedCardIds.includes(id)) })))
+    setSelectedBook(null); setActiveBookId('all'); notify('书籍及其卡片已删除')
+  }
+
+  function saveCard(draft: Omit<KnowledgeCard, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) {
+    if (!draft.title.trim() || !draft.bookId) return
+    if (draft.id) {
+      const next = { ...draft, updatedAt: now() } as KnowledgeCard
+      setCards((current) => current.map((card) => card.id === draft.id ? next : card))
+      setSelectedCard(next); notify('知识卡片已更新')
+    } else {
+      const next: KnowledgeCard = { ...draft, id: uid('card'), createdAt: now(), updatedAt: now() }
+      setCards((current) => [next, ...current]); setSelectedCard(next); notify('知识卡片已保存')
+    }
+    setCardModal(null)
+  }
+
+  function deleteCard(card: KnowledgeCard) {
+    if (!window.confirm(`删除知识卡片「${card.title}」？`)) return
+    setCards((current) => current.filter((item) => item.id !== card.id).map((item) => ({ ...item, relatedCardIds: item.relatedCardIds.filter((id) => id !== card.id) })))
+    setSelectedCard(null); notify('知识卡片已删除')
+  }
+
+  function exportData() {
+    const blob = new Blob([JSON.stringify({ version: 2, exportedAt: now(), books, cards }, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob); const link = document.createElement('a')
+    link.href = url; link.download = `knowledge-garden-${new Date().toISOString().slice(0, 10)}.json`; link.click(); URL.revokeObjectURL(url); notify('知识库备份已下载')
+  }
+
+  function importData(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]; if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => { try { const data = JSON.parse(String(reader.result)); if (!Array.isArray(data.books) || !Array.isArray(data.cards)) throw new Error(); if (window.confirm('导入会覆盖当前浏览器中的全部知识库，是否继续？')) { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); window.location.reload() } } catch { notify('导入失败：请选择由知识花园导出的 JSON 备份') } finally { event.target.value = '' } }
+    reader.readAsText(file)
+  }
+
+  const nav: Array<[View, string, typeof Grid2X2]> = [['home', '知识大厅', Grid2X2], ['library', '我的书架', Library], ['cards', '知识卡片', NotebookPen], ['map', '知识地图', Network], ['assistant', '知识助手', Bot]]
+
+  return <main className="app-shell">
+    <aside className="sidebar"><div className="brand"><span className="brand-mark"><BrainCircuit size={20} /></span><span>知知<b>KNOWLEDGE GARDEN</b></span></div>
+      <nav>{nav.map(([id, label, Icon]) => <button key={id} className={`nav-item ${view === id ? 'is-active' : ''}`} onClick={() => setView(id)}><Icon size={18} />{label}</button>)}</nav>
+      <hr /><p className="side-label">当前知识库</p><div className="library-summary"><span><BookOpen size={15} />{books.length} 本书</span><span><NotebookPen size={15} />{cards.length} 张卡片</span><span><Link2 size={15} />{cards.reduce((sum, card) => sum + card.relatedCardIds.length, 0)} 个连接</span></div>
+      <div className="side-bottom"><button className="backup" onClick={exportData}><Download size={16} /><span><b>下载知识库备份</b><small>JSON · 可随时导入恢复</small></span></button><button className="backup" onClick={() => importRef.current?.click()}><Upload size={16} /><span><b>导入知识库备份</b><small>会覆盖当前浏览器数据</small></span></button></div>
+    </aside>
+    <section className="main"><header><div className="mobile-brand"><BrainCircuit size={20} />知知</div><label className="search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索书籍、卡片、标签或内容…" /><kbd>⌘ K</kbd></label><div className="header-actions"><button className="outline compact" onClick={() => importRef.current?.click()}><FileInput size={16} />导入</button><button className="add" onClick={() => setBookModal('new')}><Plus size={17} />新书</button></div></header>
+      <div className="page">
+        {view === 'home' && <Home books={books} cards={cards} cardCount={cardCount} openCard={setSelectedCard} openBook={setSelectedBook} createCard={openNewCard} changeView={setView} />}
+        {view === 'library' && <LibraryPage books={filteredBooks} allBooks={books} activeBookId={activeBookId} cardCount={cardCount} selectFilter={setActiveBookId} openBook={setSelectedBook} addBook={() => setBookModal('new')} />}
+        {view === 'cards' && <CardsPage cards={filteredCards} books={books} openCard={setSelectedCard} addCard={openNewCard} />}
+        {view === 'map' && <MapPage cards={cards} books={books} openCard={setSelectedCard} />}
+        {view === 'assistant' && <AssistantPage question={assistantQuestion} setQuestion={setAssistantQuestion} cards={cards} books={books} openCard={setSelectedCard} />}
+      </div>
+    </section>
+    <input ref={importRef} className="hidden" type="file" accept="application/json,.json" onChange={importData} />
+    {selectedBook && <BookPanel book={selectedBook} cards={cards.filter((card) => card.bookId === selectedBook.id)} onClose={() => setSelectedBook(null)} onEdit={() => setBookModal(selectedBook)} onDelete={() => deleteBook(selectedBook)} onOpenCard={setSelectedCard} onAddCard={openNewCard} />}
+    {selectedCard && <CardPanel card={selectedCard} book={bookById(selectedCard.bookId)} related={cards.filter((item) => selectedCard.relatedCardIds.includes(item.id))} onClose={() => setSelectedCard(null)} onEdit={() => setCardModal(selectedCard)} onDelete={() => deleteCard(selectedCard)} onOpenCard={setSelectedCard} />}
+    {bookModal && <BookModal book={bookModal === 'new' ? undefined : bookModal} onClose={() => setBookModal(null)} onSave={saveBook} />}
+    {cardModal && <CardModal card={cardModal === 'new' ? undefined : cardModal} books={books} allCards={cards} onClose={() => setCardModal(null)} onSave={saveCard} />}
+    {toast && <div className="toast"><Check size={15} />{toast}</div>}
+  </main>
 }
-function Title({eyebrow,title,description,action}:{eyebrow:string,title:string,description:string,action?:React.ReactNode}) { return <div className="title"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p>{description}</p></div>{action}</div> }
-function BookTile({book,index}:{book:Book,index:number}) { return <article className="book-tile"><div className={`cover ${covers[index%covers.length]}`} style={{'--c':book.color} as React.CSSProperties}><span>{book.category}</span><strong>{book.title}</strong><small>{book.author}</small><i>{book.cover}</i></div><h3>{book.title}</h3><p>{book.cards} 个知识点 · {book.progress===100?'已读完':`阅读中 ${book.progress}%`}</p></article> }
-function Home({books,cards,open,to,add}:{books:Book[],cards:Card[],open:(c:Card)=>void,to:(v:View)=>void,add:()=>void}) { const featured=cards[0];return <><Title eyebrow="WED · 2026.08.19" title="欢迎回到你的知识花园。" description="让阅读沉淀，让思考生长。" action={<button className="outline" onClick={add}><FilePlus2 size={16}/>记录一个想法</button>}/><section className="hero"><article className="review"><div className="spark"><Sparkles size={19}/></div><p className="overline">今日随机回顾</p><h2>{featured.title}</h2><p className="quote">“{featured.excerpt}”</p><div><span>《{books.find(b=>b.id===featured.bookId)?.title}》</span><button onClick={()=>open(featured)}>打开卡片 <ArrowUpRight size={14}/></button></div></article><article className="growth"><div><p className="overline">知识增长</p><h3>本月新增 <b>18</b> 个连接</h3></div><span className="rise"><TrendingUp size={14}/>24%</span><section>{[31,46,38,64,54,83,74].map((h,i)=><i key={i} style={{height:`${h}%`}}/>)}</section><small>周一　周二　周三　周四　周五　周六　今天</small></article></section><div className="section-title"><div><h2>最近阅读</h2><p>正在生长的知识脉络</p></div><button onClick={()=>to('library')}>查看书架 <ChevronRight size={16}/></button></div><div className="book-row">{books.slice(0,4).map((b,i)=><BookTile book={b} index={i} key={b.id}/>)}</div><section className="insights"><div className="section-title"><div><h2>最近的洞见</h2><p>你写下的可复用思考</p></div><button onClick={()=>to('cards')}>全部卡片 <ChevronRight size={16}/></button></div>{cards.slice(1,4).map(c=><button className="insight" key={c.id} onClick={()=>open(c)}><span><Lightbulb size={16}/></span><div><b>{c.title}</b><p>{c.insight}</p><small>《{books.find(b=>b.id===c.bookId)?.title}》 · {c.updated}</small></div><ChevronRight size={17}/></button>)}</section></> }
-function LibraryPage({books,all,active,choose,add}:{books:Book[],all:Book[],active:string,choose:(x:string)=>void,add:()=>void}) { return <><Title eyebrow="MY LIBRARY" title="我的书架" description={`已收藏 ${all.length} 本书，沉淀 ${all.reduce((n,b)=>n+b.cards,0)} 个知识点。`} action={<button className="add" onClick={add}><Plus size={16}/>添加书籍</button>}/><div className="filters"><button className={active==='all'?'active':''} onClick={()=>choose('all')}>全部书籍 <span>{all.length}</span></button>{all.slice(0,5).map(b=><button className={active===b.id?'active':''} onClick={()=>choose(b.id)} key={b.id}>{b.title}</button>)}</div>{books.length?<div className="library-grid">{books.map((b,i)=><article className="library-book" key={b.id}><div className={`cover large ${covers[i%covers.length]}`} style={{'--c':b.color} as React.CSSProperties}><span>{b.category}</span><strong>{b.title}</strong><small>{b.author}</small><i>{b.cover}</i></div><div><p className="category">{b.category}</p><h2>{b.title}</h2><p>{b.author}</p><div className="stats"><span><NotebookPen size={14}/>{b.cards} 个知识点</span><span><Star size={14} fill="currentColor"/>{b.rating||'未评分'}</span></div><div className="progress"><i style={{width:`${b.progress}%`}}/><small>{b.progress===100?'已读完':`阅读进度 ${b.progress}%`}</small></div></div></article>)}</div>:<Empty title="没有匹配的书籍" text="换个搜索词，或创建一本新书。" icon={<Search/>}/>}</> }
-function CardsPage({cards,books,open,add}:{cards:Card[],books:Book[],open:(x:Card)=>void,add:()=>void}) { return <><Title eyebrow="KNOWLEDGE CARDS" title="知识卡片" description="把摘录变成有来源、有理解、有行动的知识资产。" action={<button className="add" onClick={add}><Plus size={16}/>新建卡片</button>}/>{cards.length?<div className="card-grid">{cards.map((c,i)=><button className={`card tint${i%4}`} key={c.id} onClick={()=>open(c)}><div><span>{c.category}</span><b>{'✦'.repeat(c.importance)}</b></div><h2>{c.title}</h2><blockquote>“{c.excerpt}”</blockquote><p>{c.insight}</p><section>{c.tags.map(t=><i key={t}>#{t}</i>)}</section><footer><BookOpen size={14}/>《{books.find(b=>b.id===c.bookId)?.title}》<ArrowUpRight size={13}/></footer></button>)}</div>:<Empty title="没有找到知识卡片" text="从书中提炼一个可以复用的观点吧。" icon={<Tags/>}/>}</> }
-function MapPage({cards,books,open}:{cards:Card[],books:Book[],open:(c:Card)=>void}) { return <><Title eyebrow="KNOWLEDGE GRAPH" title="知识地图" description="每一次连接，都让你的思考变得更完整。" action={<button className="outline"><Network size={16}/>自动发现连接</button>}/><section className="map"><div className="canvas"><div className="map-meta"><Network size={15}/>38 个知识节点</div><svg viewBox="0 0 900 520" preserveAspectRatio="none"><path d="M175 285 C275 135 360 180 430 245 S620 125 760 165"/><path d="M175 285 C280 375 365 395 465 360 S630 340 760 285"/><path d="M430 245 C460 280 470 310 465 360"/><path d="M430 245 C570 245 650 255 760 285"/></svg>{cards.slice(0,6).map((c,i)=><button className={`node n${i}`} key={c.id} onClick={()=>open(c)}><span>{i===0?<Sparkles size={14}/>:<BookOpen size={14}/>}</span><b>{c.title}</b><small>《{books.find(x=>x.id===c.bookId)?.title}》</small></button>)}</div><aside><p className="overline">主题聚类</p><h2>商业与长期主义</h2><p>这组知识围绕“创造长期价值”形成了最密集的连接。</p><div><span><i/>财富创造 <b>8</b></span><span><i/>品牌定位 <b>6</b></span><span><i/>创新战略 <b>5</b></span></div><button>查看关联笔记 <ChevronRight size={16}/></button></aside></section></> }
-function Assistant({question,answer,setQuestion,ask,total}:{question:string,answer:string,setQuestion:(x:string)=>void,ask:(input?:string)=>void,total:number}) { const prompts=['总结我的创业方法论','我读过哪些品牌建设的方法？','帮我找关于长期主义的观点'];return <><Title eyebrow="PRIVATE KNOWLEDGE ASSISTANT" title="问问你的知识库。" description={`基于 ${total} 张知识卡片，为你的思考提供可追溯的回答。`}/><section className="assistant"><div className="intro"><span><Bot size={27}/></span><h2>你的私人知识助手</h2><p>它只在当前浏览器中搜索你的卡片，并标明观点来源。</p><div>{prompts.map(x=><button key={x} onClick={()=>{setQuestion(x);ask(x)}}><Sparkles size={13}/>{x}</button>)}</div></div>{answer&&<article className="answer"><b><Bot size={15}/>知知的回答</b>{answer.split('\n\n').map((p,i)=><p key={i}>{p}</p>)}<small>回答基于你的知识卡片生成</small></article>}<div className="ask"><textarea rows={2} value={question} onChange={e=>setQuestion(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();ask()}}} placeholder="例如：总结我关于创业的核心方法论…"/><button onClick={()=>ask()}><ArrowUpRight size={18}/></button><small>Enter 发送 · 数据仅存储在当前浏览器</small></div></section></> }
-function Drawer({card,book,close}:{card:Card,book?:Book,close:()=>void}) { return <div className="overlay" onMouseDown={close}><aside className="drawer" onMouseDown={e=>e.stopPropagation()}><div><span>{card.category}</span><button onClick={close}><X size={18}/></button></div><h2>{card.title}</h2><p className="source"><BookOpen size={15}/>来源 · 《{book?.title}》</p><section><label>原文摘录</label><blockquote>“{card.excerpt}”</blockquote></section><section><label>我的理解</label><p>{card.insight}</p></section><section className="application"><label>可以如何应用</label><p>{card.application}</p></section><div className="tags">{card.tags.map(t=><i key={t}>#{t}</i>)}</div><footer>更新于 {card.updated}<button className="outline"><NotebookPen size={15}/>编辑卡片</button></footer></aside></div> }
-function BookModal({close,save}:{close:()=>void,save:(title:string,author:string,category:string)=>void}) { const [title,setTitle]=useState(''),[author,setAuthor]=useState(''),[category,setCategory]=useState('商业');return <div className="overlay modal-wrap" onMouseDown={close}><form className="modal" onMouseDown={e=>e.stopPropagation()} onSubmit={e=>{e.preventDefault();if(title.trim())save(title.trim(),author.trim(),category)}}><div className="modal-head"><div><p className="eyebrow">NEW BOOK</p><h2>加入一本新书</h2></div><button type="button" onClick={close}><X size={18}/></button></div><label>书名<input autoFocus required value={title} onChange={e=>setTitle(e.target.value)} placeholder="例如：从 0 到 1"/></label><label>作者<input value={author} onChange={e=>setAuthor(e.target.value)} placeholder="作者姓名"/></label><label>领域<select value={category} onChange={e=>setCategory(e.target.value)}>{['商业','心理学','哲学','历史','自我成长','科技'].map(x=><option key={x}>{x}</option>)}</select></label><div className="actions"><button type="button" className="outline" onClick={close}>取消</button><button className="add"><Plus size={16}/>创建书籍</button></div></form></div> }
-function CardModal({books,close,save}:{books:Book[],close:()=>void,save:(title:string,book:string,insight:string)=>void}) { const [title,setTitle]=useState(''),[book,setBook]=useState(books[0]?.id||''),[insight,setInsight]=useState('');return <div className="overlay modal-wrap" onMouseDown={close}><form className="modal wide" onMouseDown={e=>e.stopPropagation()} onSubmit={e=>{e.preventDefault();if(title.trim()&&insight.trim())save(title.trim(),book,insight.trim())}}><div className="modal-head"><div><p className="eyebrow">NEW KNOWLEDGE CARD</p><h2>捕捉一个洞见</h2></div><button type="button" onClick={close}><X size={18}/></button></div><label>知识点标题<input autoFocus required value={title} onChange={e=>setTitle(e.target.value)} placeholder="例如：第一性原理"/></label><label>关联书籍<select value={book} onChange={e=>setBook(e.target.value)}>{books.map(b=><option key={b.id} value={b.id}>{b.title}</option>)}</select></label><label>你的理解<textarea rows={5} required value={insight} onChange={e=>setInsight(e.target.value)} placeholder="这个概念对你意味着什么？它可以怎样被应用？"/></label><div className="actions"><button type="button" className="outline" onClick={close}>取消</button><button className="add"><Sparkles size={16}/>保存卡片</button></div></form></div> }
-function Empty({title,text,icon}:{title:string,text:string,icon:React.ReactNode}) { return <div className="empty"><span>{icon}</span><h2>{title}</h2><p>{text}</p></div> }
+function PageTitle({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: React.ReactNode }) {
+  return <div className="page-title"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p className="subtitle">{description}</p></div>{action}</div>
+}
+function StatusLabel({ status }: { status: BookStatus }) { const label: Record<BookStatus, string> = { 'to-read': '想读', reading: '在读', done: '已读' }; return <span className={`status status-${status}`}>{label[status]}</span> }
+function BookCover({ book, index, large = false }: { book: Book; index: number; large?: boolean }) { return <div className={`book-cover ${BOOK_COVERS[index % BOOK_COVERS.length]} ${large ? 'book-cover-large' : ''}`} style={{ '--book-color': book.color } as React.CSSProperties}><span>{book.category}</span><strong>{book.title}</strong><small>{book.author}</small><i>{book.cover}</i></div> }
+
+function Home({ books, cards, cardCount, openCard, openBook, createCard, changeView }: { books: Book[]; cards: KnowledgeCard[]; cardCount: (id: string) => number; openCard: (card: KnowledgeCard) => void; openBook: (book: Book) => void; createCard: () => void; changeView: (view: View) => void }) {
+  const featured = cards[0]
+  const links = cards.reduce((sum, card) => sum + card.relatedCardIds.length, 0)
+  return <>
+    <PageTitle eyebrow="YOUR PRIVATE KNOWLEDGE BASE" title="欢迎回到你的知识花园。" description="每一条记录都可以被编辑、关联、搜索、导出和复用。" action={<button className="outline" onClick={createCard}><FilePlus2 size={16} />记录一个想法</button>} />
+    <section className="metric-grid"><article><BookOpen size={18} /><div><b>{books.length}</b><span>本书籍</span></div></article><article><NotebookPen size={18} /><div><b>{cards.length}</b><span>张知识卡片</span></div></article><article><Link2 size={18} /><div><b>{links}</b><span>个手动连接</span></div></article></section>
+    <section className="hero-grid"><article className="focus-card"><span className="spark"><Sparkles size={19} /></span><p className="overline">最近记录</p>{featured ? <><h2>{featured.title}</h2><p>“{featured.excerpt || featured.insight}”</p><div><span>《{books.find((book) => book.id === featured.bookId)?.title}》</span><button onClick={() => openCard(featured)}>打开卡片 <ArrowUpRight size={14} /></button></div></> : <><h2>从第一张卡片开始</h2><p>记录原文、理解和应用，让想法真正成为你的知识。</p><button className="outline" onClick={createCard}>创建卡片</button></>}</article>
+      <article className="action-card"><p className="overline">快速开始</p><h2>把已有内容变成知识库</h2><p>新建书籍时导入 TXT 或 Markdown，系统会按段落生成可编辑的待整理卡片。</p><ol><li>导入文本</li><li>补充你的理解</li><li>关联已有观点</li></ol><button onClick={() => changeView('library')}>打开书架 <ChevronRight size={16} /></button></article></section>
+    <section className="section-heading"><div><h2>书架概览</h2><p>点击书籍即可查看、编辑和管理其知识卡片。</p></div><button className="text-button" onClick={() => changeView('library')}>全部书籍 <ChevronRight size={17} /></button></section>
+    <div className="book-row">{books.slice(0, 4).map((book, index) => <button className="book-tile" key={book.id} onClick={() => openBook(book)}><BookCover book={book} index={index} /><h3>{book.title}</h3><p><StatusLabel status={book.status} /> {cardCount(book.id)} 张卡片</p></button>)}</div>
+  </>
+}
+
+function LibraryPage({ books, allBooks, activeBookId, cardCount, selectFilter, openBook, addBook }: { books: Book[]; allBooks: Book[]; activeBookId: string; cardCount: (id: string) => number; selectFilter: (id: string) => void; openBook: (book: Book) => void; addBook: () => void }) {
+  return <><PageTitle eyebrow="MY LIBRARY" title="我的书架" description="创建、编辑、删除书籍；每本书都可以保存原始文本与独立的知识卡片。" action={<button className="add" onClick={addBook}><Plus size={16} />添加书籍</button>} /><div className="filterbar"><button className={activeBookId === 'all' ? 'active' : ''} onClick={() => selectFilter('all')}>全部 <span>{allBooks.length}</span></button>{allBooks.map((book) => <button className={activeBookId === book.id ? 'active' : ''} onClick={() => selectFilter(book.id)} key={book.id}>{book.title}</button>)}</div>{books.length ? <div className="library-grid">{books.map((book, index) => <button className="library-book" key={book.id} onClick={() => openBook(book)}><BookCover book={book} index={index} large /><div><div><p className="book-category">{book.category}</p><h2>{book.title}</h2><p>{book.author}</p></div><div className="book-stats"><StatusLabel status={book.status} /><span><NotebookPen size={14} />{cardCount(book.id)} 张卡片</span><span>评分 {book.rating || '—'}/5</span></div><small>最近更新 {new Date(book.updatedAt).toLocaleDateString('zh-CN')}</small></div></button>)}</div> : <Empty icon={<Search />} title="没有匹配的书籍" description="换个关键词，或从右上角添加一本新书。" />}</>
+}
+
+function CardsPage({ cards, books, openCard, addCard }: { cards: KnowledgeCard[]; books: Book[]; openCard: (card: KnowledgeCard) => void; addCard: () => void }) {
+  return <><PageTitle eyebrow="KNOWLEDGE CARDS" title="知识卡片" description="每张卡片都支持完整编辑、标签、来源、应用场景和双向关联。" action={<button className="add" onClick={addCard}><Plus size={16} />新建卡片</button>} />{cards.length ? <div className="card-grid">{cards.map((card, index) => <button className={`knowledge-card card-tint-${index % 4}`} key={card.id} onClick={() => openCard(card)}><div className="card-topline"><span>{card.category}</span><b>{'✦'.repeat(card.importance)}</b></div><h2>{card.title}</h2><blockquote>“{card.excerpt || '未填写原文摘录'}”</blockquote><p>{card.insight || '未填写个人理解'}</p><div className="card-tags">{card.tags.map((tag) => <i key={tag}>#{tag}</i>)}</div><footer><BookOpen size={14} />《{books.find((book) => book.id === card.bookId)?.title ?? '未关联书籍'}》<span>{card.relatedCardIds.length} 个关联</span></footer></button>)}</div> : <Empty icon={<NotebookPen />} title="还没有知识卡片" description="先创建一张卡片，或在添加书籍时导入 TXT / Markdown。" />}</>
+}
+
+function MapPage({ cards, books, openCard }: { cards: KnowledgeCard[]; books: Book[]; openCard: (card: KnowledgeCard) => void }) {
+  const nodes = cards.slice(0, 12)
+  const links = nodes.flatMap((card) => card.relatedCardIds.filter((id) => nodes.some((node) => node.id === id)).map((id) => [card.id, id] as const)).filter(([from, to]) => from < to)
+  const positions = nodes.map((_, index) => { const angle = (Math.PI * 2 * index) / Math.max(nodes.length, 1) - Math.PI / 2; return { x: 50 + Math.cos(angle) * 37, y: 50 + Math.sin(angle) * 37 } })
+  const pos = (id: string) => positions[nodes.findIndex((node) => node.id === id)]
+  return <><PageTitle eyebrow="KNOWLEDGE GRAPH" title="知识地图" description="这里显示你在卡片编辑器里创建的真实关联，不再是演示数据。" />{nodes.length ? <section className="map-layout"><div className="map-canvas"><svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">{links.map(([from, to]) => { const a = pos(from); const b = pos(to); return a && b ? <line key={`${from}-${to}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} /> : null })}</svg>{nodes.map((card, index) => <button key={card.id} className="map-node" style={{ left: `${positions[index].x}%`, top: `${positions[index].y}%` }} onClick={() => openCard(card)}><span>{card.relatedCardIds.length}</span><b>{card.title}</b><small>《{books.find((book) => book.id === card.bookId)?.title}》</small></button>)}</div><aside className="map-sidebar"><p className="overline">真实关系</p><h2>{links.length} 条连接</h2><p>在卡片编辑器中勾选“关联卡片”即可建立连接。知识地图会立即根据你的数据重绘。</p><div className="tag-summary">{Array.from(new Set(cards.flatMap((card) => card.tags))).slice(0, 8).map((tag) => <span key={tag}>#{tag}</span>)}</div></aside></section> : <Empty icon={<Network />} title="知识地图等待第一条连接" description="创建两张卡片后，在编辑器中互相关联即可看到节点和连线。" />}</>
+}
+function AssistantPage({ question, setQuestion, cards, books, openCard }: { question: string; setQuestion: (question: string) => void; cards: KnowledgeCard[]; books: Book[]; openCard: (card: KnowledgeCard) => void }) {
+  const [asked, setAsked] = useState(false)
+  const results = useMemo(() => {
+    const normalized = question.trim().toLowerCase()
+    if (!normalized) return []
+    const tokens = Array.from(new Set([normalized, ...normalized.split(/[\s，。；、,./!?？]+/).filter((token) => token.length > 1), ...Array.from({ length: Math.max(0, normalized.length - 1) }, (_, index) => normalized.slice(index, index + 2))]))
+    return cards.map((card) => {
+      const text = `${card.title} ${card.category} ${card.excerpt} ${card.insight} ${card.application} ${card.tags.join(' ')}`.toLowerCase()
+      const score = tokens.reduce((sum, token) => sum + (text.includes(token) ? (card.title.toLowerCase().includes(token) ? 5 : card.tags.join(' ').toLowerCase().includes(token) ? 4 : 1) : 0), 0)
+      return { card, score }
+    }).filter((item) => item.score > 0).sort((a, b) => b.score - a.score).slice(0, 6)
+  }, [question, cards])
+  const prompts = ['找出所有和长期主义有关的观点', '我读过哪些关于品牌建设的方法？', '总结我知识库里的创业原则']
+  return <><PageTitle eyebrow="LOCAL KNOWLEDGE RETRIEVAL" title="在自己的知识库中检索。" description="这是浏览器内的真实内容检索：不会把你的笔记发送到任何第三方。" />
+    <section className="assistant-shell"><div className="assistant-intro"><span><Bot size={27} /></span><h2>本地知识助手</h2><p>输入一个问题，它会按标题、标签、原文、理解和应用场景搜索你的卡片。</p><div>{prompts.map((prompt) => <button key={prompt} onClick={() => { setQuestion(prompt); setAsked(true) }}><Sparkles size={13} />{prompt}</button>)}</div></div>
+      {asked && <article className="assistant-answer"><b><Bot size={15} />检索结果 · {results.length} 张卡片</b>{results.length ? <><p>以下结果按与你问题的匹配程度排序。它们是你的原始记录，而非虚构的 AI 总结。</p><div className="answer-results">{results.map(({ card, score }) => <button key={card.id} onClick={() => openCard(card)}><span>{score}</span><div><strong>{card.title}</strong><p>{card.insight || card.excerpt}</p><small>《{books.find((book) => book.id === card.bookId)?.title ?? '未关联书籍'}》 · #{card.tags.join(' #')}</small></div><ChevronRight size={16} /></button>)}</div></> : <p>没有找到匹配的内容。尝试使用书名、标签或更短的关键词；也可以先添加卡片。</p>}</article>}
+      <div className="askbar"><textarea rows={3} value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); setAsked(true) } }} placeholder="例如：我记录过哪些关于用户心智的观点？" /><button aria-label="开始检索" onClick={() => setAsked(true)}><ArrowUpRight size={18} /></button><small>Enter 检索 · 仅搜索当前浏览器的本地数据</small></div>
+    </section></>
+}
+
+function BookPanel({ book, cards, onClose, onEdit, onDelete, onOpenCard, onAddCard }: { book: Book; cards: KnowledgeCard[]; onClose: () => void; onEdit: () => void; onDelete: () => void; onOpenCard: (card: KnowledgeCard) => void; onAddCard: () => void }) {
+  return <div className="overlay" onMouseDown={onClose}><aside className="side-panel" onMouseDown={(event) => event.stopPropagation()}><div className="panel-head"><button className="icon-button" onClick={onClose}><ArrowLeft size={18} /></button><div><button className="icon-button" onClick={onEdit}><Pencil size={17} /></button><button className="icon-button danger" onClick={onDelete}><Trash2 size={17} /></button></div></div><p className="eyebrow">BOOK DETAILS</p><h2>{book.title}</h2><p className="muted">{book.author} · {book.category}</p><div className="panel-meta"><StatusLabel status={book.status} /><span>评分 {book.rating || '—'} / 5</span><span>{cards.length} 张卡片</span></div>{book.sourceText && <section className="source-preview"><label>已保存的导入文本</label><p>{book.sourceText.slice(0, 360)}{book.sourceText.length > 360 ? '…' : ''}</p></section>}<section className="panel-section"><div><h3>这本书的知识卡片</h3><button className="text-button" onClick={onAddCard}><Plus size={15} />新建</button></div>{cards.length ? <div className="book-card-list">{cards.map((card) => <button key={card.id} onClick={() => onOpenCard(card)}><span><NotebookPen size={15} /></span><div><b>{card.title}</b><p>{card.insight || card.excerpt}</p></div><ChevronRight size={16} /></button>)}</div> : <p className="empty-text">还没有卡片。点击“新建”开始沉淀这本书的知识。</p>}</section></aside></div>
+}
+
+function CardPanel({ card, book, related, onClose, onEdit, onDelete, onOpenCard }: { card: KnowledgeCard; book?: Book; related: KnowledgeCard[]; onClose: () => void; onEdit: () => void; onDelete: () => void; onOpenCard: (card: KnowledgeCard) => void }) {
+  return <div className="overlay" onMouseDown={onClose}><aside className="side-panel card-panel" onMouseDown={(event) => event.stopPropagation()}><div className="panel-head"><button className="icon-button" onClick={onClose}><ArrowLeft size={18} /></button><div><button className="icon-button" onClick={onEdit}><Pencil size={17} /></button><button className="icon-button danger" onClick={onDelete}><Trash2 size={17} /></button></div></div><p className="eyebrow">{card.category}</p><h2>{card.title}</h2><p className="muted"><BookOpen size={15} />《{book?.title ?? '未关联书籍'}》</p><section><label>原文摘录</label><blockquote>“{card.excerpt || '尚未填写'}”</blockquote></section><section><label>我的理解</label><p>{card.insight || '尚未填写'}</p></section><section className="application-block"><label>可以如何应用</label><p>{card.application || '尚未填写'}</p></section><div className="card-tags panel-tags">{card.tags.map((tag) => <i key={tag}>#{tag}</i>)}</div><section className="panel-section"><div><h3>关联卡片</h3><span>{related.length} 条</span></div>{related.length ? <div className="book-card-list">{related.map((item) => <button key={item.id} onClick={() => onOpenCard(item)}><span><Link2 size={15} /></span><div><b>{item.title}</b><p>{item.insight || item.excerpt}</p></div><ChevronRight size={16} /></button>)}</div> : <p className="empty-text">还未创建关联。点击编辑按钮即可选择相关知识卡片。</p>}</section></aside></div>
+}
+
+function BookModal({ book, onClose, onSave }: { book?: Book; onClose: () => void; onSave: (book: Omit<Book, 'id' | 'color' | 'cover' | 'createdAt' | 'updatedAt'> & { id?: string }) => void }) {
+  const [title, setTitle] = useState(book?.title ?? ''), [author, setAuthor] = useState(book?.author ?? ''), [category, setCategory] = useState(book?.category ?? '商业')
+  const [status, setStatus] = useState<BookStatus>(book?.status ?? 'reading'), [rating, setRating] = useState(String(book?.rating ?? 0)), [sourceText, setSourceText] = useState(book?.sourceText ?? '')
+  function importText(event: ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => setSourceText(String(reader.result ?? '')); reader.readAsText(file) }
+  function submit(event: FormEvent) { event.preventDefault(); if (!title.trim()) return; onSave({ id: book?.id, title: title.trim(), author: author.trim() || '未知作者', category: category.trim() || '未分类', status, rating: Math.max(0, Math.min(5, Number(rating) || 0)), sourceText }) }
+  return <div className="overlay modal-wrap" onMouseDown={onClose}><form className="modal book-modal" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">{book ? 'EDIT BOOK' : 'NEW BOOK'}</p><h2>{book ? '编辑书籍' : '加入一本新书'}</h2></div><button type="button" className="icon-button" onClick={onClose}><X size={18} /></button></div><div className="form-grid"><label>书名<input autoFocus required value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：从 0 到 1" /></label><label>作者<input value={author} onChange={(event) => setAuthor(event.target.value)} placeholder="作者姓名" /></label><label>领域<input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="例如：商业 / 哲学" /></label><label>阅读状态<select value={status} onChange={(event) => setStatus(event.target.value as BookStatus)}><option value="to-read">想读</option><option value="reading">在读</option><option value="done">已读</option></select></label><label>评分（0–5）<input type="number" min="0" max="5" value={rating} onChange={(event) => setRating(event.target.value)} /></label></div><label className="file-picker"><Upload size={16} />导入 TXT / Markdown<input type="file" accept=".txt,.md,text/plain,text/markdown" onChange={importText} /></label><label>原始文本（可选）<textarea rows={7} value={sourceText} onChange={(event) => setSourceText(event.target.value)} placeholder="粘贴书摘、章节笔记，或通过上方导入 TXT / Markdown。新建书籍时，系统会按段落生成待整理卡片。" /></label><div className="modal-actions"><button type="button" className="outline" onClick={onClose}>取消</button><button className="add" type="submit"><Check size={16} />{book ? '保存修改' : '创建书籍'}</button></div></form></div>
+}
+function CardModal({ card, books, allCards, onClose, onSave }: { card?: KnowledgeCard; books: Book[]; allCards: KnowledgeCard[]; onClose: () => void; onSave: (card: Omit<KnowledgeCard, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }) => void }) {
+  const [bookId, setBookId] = useState(card?.bookId ?? books[0]?.id ?? ''), [title, setTitle] = useState(card?.title ?? ''), [category, setCategory] = useState(card?.category ?? '我的思考')
+  const [excerpt, setExcerpt] = useState(card?.excerpt ?? ''), [insight, setInsight] = useState(card?.insight ?? ''), [application, setApplication] = useState(card?.application ?? ''), [tags, setTags] = useState(card?.tags.join(', ') ?? ''), [importance, setImportance] = useState(String(card?.importance ?? 3)), [related, setRelated] = useState<string[]>(card?.relatedCardIds ?? [])
+  function submit(event: FormEvent) { event.preventDefault(); onSave({ id: card?.id, bookId, title: title.trim(), category: category.trim() || '我的思考', excerpt: excerpt.trim(), insight: insight.trim(), application: application.trim(), tags: tags.split(/[,，\n]/).map((tag) => tag.trim().replace(/^#/, '')).filter(Boolean), importance: Math.max(1, Math.min(5, Number(importance) || 3)), relatedCardIds: related }) }
+  return <div className="overlay modal-wrap" onMouseDown={onClose}><form className="modal card-modal" onMouseDown={(event) => event.stopPropagation()} onSubmit={submit}><div className="modal-head"><div><p className="eyebrow">{card ? 'EDIT CARD' : 'NEW KNOWLEDGE CARD'}</p><h2>{card ? '编辑知识卡片' : '捕捉一个洞见'}</h2></div><button type="button" className="icon-button" onClick={onClose}><X size={18} /></button></div><div className="form-grid"><label>关联书籍<select required value={bookId} onChange={(event) => setBookId(event.target.value)}>{books.map((book) => <option key={book.id} value={book.id}>{book.title}</option>)}</select></label><label>知识点标题<input autoFocus required value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：第一性原理" /></label><label>分类<input value={category} onChange={(event) => setCategory(event.target.value)} placeholder="例如：品牌定位" /></label><label>重要性<select value={importance} onChange={(event) => setImportance(event.target.value)}>{[1, 2, 3, 4, 5].map((value) => <option value={value} key={value}>{value} / 5</option>)}</select></label></div><label>原文摘录<textarea rows={3} value={excerpt} onChange={(event) => setExcerpt(event.target.value)} placeholder="记录书中的原文或关键事实" /></label><label>我的理解<textarea rows={4} value={insight} onChange={(event) => setInsight(event.target.value)} placeholder="用自己的话说明它为什么重要" /></label><label>应用场景<textarea rows={3} value={application} onChange={(event) => setApplication(event.target.value)} placeholder="我准备在哪个项目或生活场景中应用？" /></label><label>标签（用逗号分隔）<input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="品牌, 长期主义, 决策" /></label><fieldset><legend><Link2 size={15} />关联卡片</legend><p>选择相关观点，地图会立即绘制这条连接。</p><div className="relation-picker">{allCards.filter((item) => item.id !== card?.id).map((item) => <label key={item.id}><input type="checkbox" checked={related.includes(item.id)} onChange={(event) => setRelated((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} /><span>{item.title}<small>《{books.find((book) => book.id === item.bookId)?.title}》</small></span></label>)}</div></fieldset><div className="modal-actions"><button type="button" className="outline" onClick={onClose}>取消</button><button className="add" type="submit"><Check size={16} />保存卡片</button></div></form></div>
+}
+
+function Empty({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) { return <div className="empty-state"><span>{icon}</span><h2>{title}</h2><p>{description}</p></div> }
 
 
