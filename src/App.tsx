@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent } from 'react'
 import {
-  ArrowLeft, ArrowUpRight, BookOpen, Bot, BrainCircuit, Check, ChevronRight, Download,
+  ArrowLeft, ArrowUpRight, BookOpen, Bot, BrainCircuit, Check, ChevronLeft, ChevronRight, Download,
   FileInput, FilePlus2, Grid2X2, Library, Link2, Network, NotebookPen, Pencil, Plus,
   Search, Sparkles, Trash2, Upload, X,
 } from 'lucide-react'
@@ -21,7 +21,6 @@ type GardenData = { version: 2; books: Book[]; cards: KnowledgeCard[] }
 
 const STORAGE_KEY = 'knowledge-garden-v2'
 const COLORS = ['#9eb0f0', '#e99b88', '#acd6bb', '#eccb85', '#92c9d8', '#c3a9d5']
-const BOOK_COVERS = ['navy', 'coral', 'mint', 'gold', 'sky', 'purple']
 const now = () => new Date().toISOString()
 const uid = (prefix: string) => `${prefix}-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`
 
@@ -181,7 +180,7 @@ export default function App() {
     </aside>
     <section className="main"><header><div className="mobile-brand"><BrainCircuit size={20} />知知</div><label className="search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索书籍、卡片、标签或内容…" /><kbd>⌘ K</kbd></label><div className="header-actions"><button className="outline compact" onClick={() => importRef.current?.click()}><FileInput size={16} />导入</button><button className="add" onClick={() => setBookModal('new')}><Plus size={17} />新书</button></div></header>
       <div className="page">
-        {view === 'home' && <Home books={books} cards={cards} cardCount={cardCount} openCard={setSelectedCard} openBook={setSelectedBook} createCard={openNewCard} changeView={setView} />}
+        {view === 'home' && <Home books={books} cards={cards} openCard={setSelectedCard} openBook={setSelectedBook} createCard={openNewCard} changeView={setView} />}
         {view === 'library' && <LibraryPage books={filteredBooks} allBooks={books} activeBookId={activeBookId} cardCount={cardCount} selectFilter={setActiveBookId} openBook={setSelectedBook} addBook={() => setBookModal('new')} />}
         {view === 'cards' && <CardsPage cards={filteredCards} books={books} openCard={setSelectedCard} addCard={openNewCard} />}
         {view === 'map' && <MapPage cards={cards} books={books} openCard={setSelectedCard} />}
@@ -200,17 +199,15 @@ function PageTitle({ eyebrow, title, description, action }: { eyebrow: string; t
   return <div className="page-title"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p className="subtitle">{description}</p></div>{action}</div>
 }
 function StatusLabel({ status }: { status: BookStatus }) { const label: Record<BookStatus, string> = { 'to-read': '想读', reading: '在读', done: '已读' }; return <span className={`status status-${status}`}>{label[status]}</span> }
-function BookCover({ book, index, large = false }: { book: Book; index: number; large?: boolean }) {
-  return <div className={`book-volume ${large ? 'book-volume-large' : ''}`} style={{ '--book-color': book.color, '--book-tilt': `${(index % 3) - 1}deg` } as React.CSSProperties}>
-    <div className="book-pages" aria-hidden="true" />
-    <div className={`book-cover ${BOOK_COVERS[index % BOOK_COVERS.length]} ${large ? 'book-cover-large' : ''}`}>
-      <span className="cover-category">{book.category}</span><em className="cover-rule" aria-hidden="true" />
-      <strong>{book.title}</strong><small>{book.author}</small><i aria-hidden="true">{book.cover}</i>
-    </div>
-  </div>
+function ShelfBook({ book, index, onOpen, compact = false }: { book: Book; index: number; onOpen: () => void; compact?: boolean }) {
+  const widths = [52, 64, 58, 72, 55]
+  const heights = [216, 238, 225, 246, 231]
+  return <button className={`shelf-book ${compact ? 'shelf-book-compact' : ''}`} onClick={onOpen} title={`打开《${book.title}》`} style={{ '--book-color': book.color, '--spine-width': `${widths[index % widths.length]}px`, '--spine-height': `${heights[index % heights.length]}px` } as React.CSSProperties}>
+    <span className="shelf-book-pages" aria-hidden="true" /><span className="shelf-book-spine"><i aria-hidden="true" /><em>{book.category}</em><strong>{book.title}</strong><small>{book.author}</small></span>
+  </button>
 }
 
-function Home({ books, cards, cardCount, openCard, openBook, createCard, changeView }: { books: Book[]; cards: KnowledgeCard[]; cardCount: (id: string) => number; openCard: (card: KnowledgeCard) => void; openBook: (book: Book) => void; createCard: () => void; changeView: (view: View) => void }) {
+function Home({ books, cards, openCard, openBook, createCard, changeView }: { books: Book[]; cards: KnowledgeCard[]; openCard: (card: KnowledgeCard) => void; openBook: (book: Book) => void; createCard: () => void; changeView: (view: View) => void }) {
   const featured = cards[0]
   const links = cards.reduce((sum, card) => sum + card.relatedCardIds.length, 0)
   return <>
@@ -219,12 +216,14 @@ function Home({ books, cards, cardCount, openCard, openBook, createCard, changeV
     <section className="hero-grid"><article className="focus-card"><span className="spark"><Sparkles size={19} /></span><p className="overline">最近记录</p>{featured ? <><h2>{featured.title}</h2><p>“{featured.excerpt || featured.insight}”</p><div><span>《{books.find((book) => book.id === featured.bookId)?.title}》</span><button onClick={() => openCard(featured)}>打开卡片 <ArrowUpRight size={14} /></button></div></> : <><h2>从第一张卡片开始</h2><p>记录原文、理解和应用，让想法真正成为你的知识。</p><button className="outline" onClick={createCard}>创建卡片</button></>}</article>
       <article className="action-card"><p className="overline">快速开始</p><h2>把已有内容变成知识库</h2><p>新建书籍时导入 TXT 或 Markdown，系统会按段落生成可编辑的待整理卡片。</p><ol><li>导入文本</li><li>补充你的理解</li><li>关联已有观点</li></ol><button onClick={() => changeView('library')}>打开书架 <ChevronRight size={16} /></button></article></section>
     <section className="section-heading"><div><h2>书架概览</h2><p>点击书籍即可查看、编辑和管理其知识卡片。</p></div><button className="text-button" onClick={() => changeView('library')}>全部书籍 <ChevronRight size={17} /></button></section>
-    <div className="home-shelf"><div className="book-row">{books.slice(0, 4).map((book, index) => <button className="book-tile" key={book.id} onClick={() => openBook(book)}><BookCover book={book} index={index} /><h3>{book.title}</h3><p><StatusLabel status={book.status} /> {cardCount(book.id)} 张卡片</p></button>)}</div></div>
+    <div className="home-shelf home-shelf-browse"><div className="home-shelf-note"><span>我的藏书</span><small>点击书脊，翻开一本书</small></div><div className="book-row">{books.slice(0, 6).map((book, index) => <ShelfBook key={book.id} book={book} index={index} compact onOpen={() => openBook(book)} />)}</div></div>
   </>
 }
 
 function LibraryPage({ books, allBooks, activeBookId, cardCount, selectFilter, openBook, addBook }: { books: Book[]; allBooks: Book[]; activeBookId: string; cardCount: (id: string) => number; selectFilter: (id: string) => void; openBook: (book: Book) => void; addBook: () => void }) {
-  return <><PageTitle eyebrow="MY LIBRARY" title="我的书架" description="让每一本书都有自己的位置：点击书脊，即可查看和管理其中的知识卡片。" action={<button className="add" onClick={addBook}><Plus size={16} />添加书籍</button>} /><div className="filterbar"><button className={activeBookId === 'all' ? 'active' : ''} onClick={() => selectFilter('all')}>全部 <span>{allBooks.length}</span></button>{allBooks.map((book) => <button className={activeBookId === book.id ? 'active' : ''} onClick={() => selectFilter(book.id)} key={book.id}>{book.title}</button>)}</div>{books.length ? <section className="library-room"><div className="library-room-sign"><div><span>PRIVATE COLLECTION</span><b>{allBooks.length} VOLUMES</b></div><p>点击任意一本立体图书，进入它的知识空间。</p></div><div className="library-grid">{books.map((book, index) => <button className="library-book" key={book.id} onClick={() => openBook(book)}><div className="library-volume-anchor"><BookCover book={book} index={index} large /></div><div className="library-book-info"><p className="book-category">{book.category}</p><h2>{book.title}</h2><p>{book.author}</p><div className="book-stats"><StatusLabel status={book.status} /><span><NotebookPen size={14} />{cardCount(book.id)} 张卡片</span><span>评分 {book.rating || '—'}/5</span></div><small>最近更新 {new Date(book.updatedAt).toLocaleDateString('zh-CN')}</small></div></button>)}</div></section> : <Empty icon={<Search />} title="没有匹配的书籍" description="换个关键词，或从右上角添加一本新书。" />}</>
+  const shelfRef = useRef<HTMLDivElement>(null)
+  const browse = (direction: number) => shelfRef.current?.scrollBy({ left: direction * 420, behavior: 'smooth' })
+  return <><PageTitle eyebrow="MY LIBRARY" title="我的书架" description="像在书店一样沿着书脊慢慢找书；点击任意一本即可翻开它的知识内容。" action={<button className="add" onClick={addBook}><Plus size={16} />添加书籍</button>} /><div className="filterbar"><button className={activeBookId === 'all' ? 'active' : ''} onClick={() => selectFilter('all')}>全部 <span>{allBooks.length}</span></button>{allBooks.map((book) => <button className={activeBookId === book.id ? 'active' : ''} onClick={() => selectFilter(book.id)} key={book.id}>{book.title}</button>)}</div>{books.length ? <section className="bookshelf-browser"><div className="bookshelf-top"><div><p>PERSONAL LIBRARY · {books.length} 本</p><h2>沿着书脊找一本书</h2></div><div className="shelf-controls"><button aria-label="向左翻阅书架" onClick={() => browse(-1)}><ChevronLeft size={18} /></button><button aria-label="向右翻阅书架" onClick={() => browse(1)}><ChevronRight size={18} /></button></div></div><div className="bookshelf-window"><div className="shelf-track" ref={shelfRef}>{books.map((book, index) => <ShelfBook key={book.id} book={book} index={index} onOpen={() => openBook(book)} />)}</div><div className="shelf-plank" aria-hidden="true" /></div><p className="browse-hint">拖动或使用箭头翻阅书架 · 点击书脊打开书籍 · 当前筛选：{activeBookId === 'all' ? '全部藏书' : books[0]?.title}</p><div className="shelf-book-meta">{books.slice(0, 4).map((book) => <span key={book.id}><StatusLabel status={book.status} />《{book.title}》 · {cardCount(book.id)} 张卡片</span>)}</div></section> : <Empty icon={<Search />} title="没有匹配的书籍" description="换个关键词，或从右上角添加一本新书。" />}</>
 }
 
 function CardsPage({ cards, books, openCard, addCard }: { cards: KnowledgeCard[]; books: Book[]; openCard: (card: KnowledgeCard) => void; addCard: () => void }) {
