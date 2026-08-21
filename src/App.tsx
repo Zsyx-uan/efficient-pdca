@@ -146,10 +146,16 @@ export default function App() {
     const updatedAt = now()
     if (draft.id) {
       const next = { ...draft, updatedAt, createdAt: cards.find((card) => card.id === draft.id)?.createdAt ?? updatedAt } as KnowledgeCard
-      setCards((current) => current.map((card) => card.id === next.id ? next : card)); setSelectedCardId(next.id); notify('知识卡片已更新')
+      setCards((current) => current.map((card) => {
+        if (card.id === next.id) return next
+        const related = new Set(card.relatedCardIds)
+        if (next.relatedCardIds.includes(card.id)) related.add(next.id)
+        else related.delete(next.id)
+        return { ...card, relatedCardIds: [...related] }
+      })); setSelectedCardId(next.id); notify('知识卡片已更新')
     } else {
       const next: KnowledgeCard = { ...draft, id: uid('card'), origin: 'manual', sortOrder: cards.filter((card) => card.bookId === draft.bookId).length, createdAt: updatedAt, updatedAt }
-      setCards((current) => [next, ...current]); setSelectedCardId(next.id); notify('知识卡片已保存')
+      setCards((current) => [next, ...current.map((card) => next.relatedCardIds.includes(card.id) ? { ...card, relatedCardIds: Array.from(new Set([...card.relatedCardIds, next.id])) } : card)]); setSelectedCardId(next.id); notify('知识卡片已保存')
     }
     setCardModal(null)
   }
