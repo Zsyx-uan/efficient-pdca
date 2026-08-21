@@ -212,7 +212,7 @@ function ShelfRow({ books, offset, cardCount, openBook }: { books: Book[]; offse
   const drag = useRef<{ pointerId: number; startX: number; startScroll: number } | null>(null)
   const move = (direction: number) => trackRef.current?.scrollBy({ left: direction * 360, behavior: 'smooth' })
   const onWheel = (event: React.WheelEvent<HTMLDivElement>) => { if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) { event.preventDefault(); event.currentTarget.scrollLeft += event.deltaY } }
-  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => { drag.current = { pointerId: event.pointerId, startX: event.clientX, startScroll: event.currentTarget.scrollLeft }; event.currentTarget.setPointerCapture(event.pointerId) }
+  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => { if ((event.target as HTMLElement).closest('.shelf-book')) return; drag.current = { pointerId: event.pointerId, startX: event.clientX, startScroll: event.currentTarget.scrollLeft }; event.currentTarget.setPointerCapture(event.pointerId) }
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => { if (drag.current?.pointerId === event.pointerId) event.currentTarget.scrollLeft = drag.current.startScroll - (event.clientX - drag.current.startX) }
   const onPointerEnd = (event: React.PointerEvent<HTMLDivElement>) => { if (drag.current?.pointerId === event.pointerId) { drag.current = null; event.currentTarget.releasePointerCapture(event.pointerId) } }
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => { if (event.key === 'ArrowLeft') { event.preventDefault(); move(-1) } if (event.key === 'ArrowRight') { event.preventDefault(); move(1) } }
