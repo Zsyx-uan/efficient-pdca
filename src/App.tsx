@@ -305,6 +305,7 @@ export default function App() {
     </aside>
     <section className="main-content kg-main">
       <header className="topbar"><div className="searchbox"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索书籍、章节、知识卡片…" /></div><div className="top-actions"><button className={`cloud-top-action ${syncStatus}`} onClick={() => setSyncModal(true)} aria-label={cloudSession ? '打开云端同步' : '登录并开启同步'}><Cloud size={18} /><span>{cloudSession ? '同步' : '登录'}</span></button><button className="soft-button" onClick={() => markdownInputRef.current?.click()}><FilePlus2 size={17} /> 结构化导入</button><button className="primary-button" onClick={() => setBookModal('new')}><Plus size={18} /> 新建书籍</button></div></header>
+      <button className={`mobile-cloud-access ${syncStatus}`} onClick={() => setSyncModal(true)} aria-label={cloudSession ? '打开云端同步' : '登录并开启跨设备同步'}><Cloud size={18} /><span>{cloudSession ? '云端同步' : '登录同步'}</span></button>
       {view === 'home' && <HomePage books={books} cards={cards} onLibrary={() => setView('library')} onOpenBook={openBook} onOpenCard={openCard} />}
       {view === 'library' && <LibraryPage books={visibleBooks} cards={cards} activeBookId={activeBookId} setActiveBookId={setActiveBookId} onOpenBook={openBook} onNew={() => setBookModal('new')} />}
       {view === 'cards' && <CardsPage cards={visibleCards} books={books} onOpenCard={openCard} onNew={() => setCardModal('new')} />}
