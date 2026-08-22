@@ -111,7 +111,8 @@ export default function App() {
   const [cards, setCards] = useState<KnowledgeCard[]>(initial.cards)
   const [view, setView] = useState<View>('home')
   const [query, setQuery] = useState('')
-  const [activeBookId, setActiveBookId] = useState('all')
+  const [libraryCategory, setLibraryCategory] = useState('all')
+  const [mapBookId, setMapBookId] = useState('')
   const [selectedBookId, setSelectedBookId] = useState<string | null>(null)
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null)
   const [archiveSectionId, setArchiveSectionId] = useState<string | undefined>()
@@ -159,8 +160,18 @@ export default function App() {
         if (cancelled) return
         if (remote) {
           const normalized = normalizeData(remote.garden)
-          if (normalized) { setBooks(normalized.books); setCards(normalized.cards); localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized)) }
-          setSyncDetail(`已从云端恢复 · ${new Date(remote.updatedAt).toLocaleString('zh-CN')}`)
+          const local = gardenSnapshot()
+          const remoteHasContent = Boolean(normalized && (normalized.books.length || normalized.cards.length))
+          const localHasContent = Boolean(local.books.length || local.cards.length)
+          // Never let an empty cloud snapshot silently erase a populated device.
+          if (normalized && !remoteHasContent && localHasContent) {
+            await pushGarden(cloudSession, local)
+            if (cancelled) return
+            setSyncDetail('云端备份为空，已保留并上传此设备的知识库')
+          } else if (normalized) {
+            setBooks(normalized.books); setCards(normalized.cards); localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized))
+            setSyncDetail(`已从云端恢复 · ${new Date(remote.updatedAt).toLocaleString('zh-CN')}`)
+          }
         } else {
           await pushGarden(cloudSession, gardenSnapshot())
           if (cancelled) return
@@ -202,15 +213,15 @@ export default function App() {
   async function restoreCloud() {
     if (!cloudSession) return
     setSyncStatus('syncing'); setSyncDetail('正在从云端恢复…')
-    try { const remote = await pullGarden(cloudSession); if (!remote) { notify('云端还没有备份，已保留本地资料'); setSyncStatus('synced'); return }; const normalized = normalizeData(remote.garden); if (normalized) { setBooks(normalized.books); setCards(normalized.cards); localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized)); notify('已从云端恢复知识库') }; setSyncStatus('synced'); setSyncDetail(`已从云端恢复 · ${new Date(remote.updatedAt).toLocaleString('zh-CN')}`) } catch (error) { setSyncStatus('error'); setSyncDetail(error instanceof Error ? error.message : '云端恢复失败') }
+    try { const remote = await pullGarden(cloudSession); if (!remote) { notify('云端还没有备份，已保留本地资料'); setSyncStatus('synced'); return }; const normalized = normalizeData(remote.garden); const remoteHasContent = Boolean(normalized && (normalized.books.length || normalized.cards.length)); const localHasContent = Boolean(books.length || cards.length); if (normalized && !remoteHasContent && localHasContent) { notify('云端备份为空；为避免清空本机资料，未执行恢复。可点击“立即同步”上传本机资料。'); setSyncStatus('synced'); setSyncDetail('云端备份为空，已保护本机资料'); return }; if (normalized) { setBooks(normalized.books); setCards(normalized.cards); localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized)); notify('已从云端恢复知识库') }; setSyncStatus('synced'); setSyncDetail(`已从云端恢复 · ${new Date(remote.updatedAt).toLocaleString('zh-CN')}`) } catch (error) { setSyncStatus('error'); setSyncDetail(error instanceof Error ? error.message : '云端恢复失败') }
   }
 
   async function disconnectCloud() {
     if (!cloudSession) return
     await signOutFromCloud(cloudSession); localStorage.removeItem(CLOUD_SESSION_KEY); setCloudSession(null); setCloudReady(false); setSyncModal(false); notify('已退出云同步账号，本地资料仍然保留')
   }
-  const visibleBooks = books.filter((book) => bookToText(book).includes(query.toLowerCase()) && (activeBookId === 'all' || book.id === activeBookId))
-  const visibleCards = cards.filter((card) => cardToText(card).includes(query.toLowerCase()) && (activeBookId === 'all' || card.bookId === activeBookId))
+  const visibleBooks = books.filter((book) => bookToText(book).includes(query.toLowerCase()) && (libraryCategory === 'all' || book.category === libraryCategory))
+  const visibleCards = cards.filter((card) => cardToText(card).includes(query.toLowerCase()) && (libraryCategory === 'all' || books.some((book) => book.id === card.bookId && book.category === libraryCategory)))
   const openBook = (book: Book, sectionId?: string) => { setSelectedBookId(book.id); setArchiveSectionId(sectionId); setSelectedCardId(null) }
   const openCard = (card: KnowledgeCard) => { setSelectedCardId(card.id); setSelectedBookId(null) }
 
@@ -307,9 +318,9 @@ export default function App() {
       <header className="topbar"><div className="searchbox"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索书籍、章节、知识卡片…" /></div><div className="top-actions"><button className={`cloud-top-action ${syncStatus}`} onClick={() => setSyncModal(true)} aria-label={cloudSession ? '打开云端同步' : '登录并开启同步'}><Cloud size={18} /><span>{cloudSession ? '同步' : '登录'}</span></button><button className="soft-button" onClick={() => markdownInputRef.current?.click()}><FilePlus2 size={17} /> 结构化导入</button><button className="primary-button" onClick={() => setBookModal('new')}><Plus size={18} /> 新建书籍</button></div></header>
       <button className={`mobile-cloud-access ${syncStatus}`} onClick={() => setSyncModal(true)} aria-label={cloudSession ? '打开云端同步' : '登录并开启跨设备同步'}><Cloud size={18} /><span>{cloudSession ? '云端同步' : '登录同步'}</span></button>
       {view === 'home' && <HomePage books={books} cards={cards} onLibrary={() => setView('library')} onOpenBook={openBook} onOpenCard={openCard} />}
-      {view === 'library' && <LibraryPage books={visibleBooks} cards={cards} activeBookId={activeBookId} setActiveBookId={setActiveBookId} onOpenBook={openBook} onNew={() => setBookModal('new')} />}
+      {view === 'library' && <LibraryPage books={visibleBooks} cards={cards} activeCategory={libraryCategory} setActiveCategory={setLibraryCategory} onOpenBook={openBook} onNew={() => setBookModal('new')} />}
       {view === 'cards' && <CardsPage cards={visibleCards} books={books} onOpenCard={openCard} onNew={() => setCardModal('new')} />}
-      {view === 'map' && <StructureMap books={books} cards={cards} activeBookId={activeBookId} setActiveBookId={setActiveBookId} onOpenBook={openBook} onOpenCard={openCard} />}
+      {view === 'map' && <StructureMap books={books} cards={cards} focusedBookId={mapBookId} setFocusedBookId={setMapBookId} onOpenBook={openBook} onOpenCard={openCard} />}
       {view === 'assistant' && <AssistantPage books={books} cards={cards} />}
     </section>
     <input ref={jsonInputRef} className="sr-only" type="file" accept="application/json,.json" onChange={importData} />
@@ -339,15 +350,15 @@ function HomePage({ books, cards, onLibrary, onOpenBook, onOpenCard }: HomePageP
 }
 function Stat({ value, label }: { value: number; label: string }) { return <article className="kg-stat"><strong>{value}</strong><span>{label}</span></article> }
 
-type LibraryProps = { books: Book[]; cards: KnowledgeCard[]; activeBookId: string; setActiveBookId: (id: string) => void; onOpenBook: (book: Book) => void; onNew: () => void }
-function LibraryPage({ books, cards, activeBookId, setActiveBookId, onOpenBook, onNew }: LibraryProps) {
+type LibraryProps = { books: Book[]; cards: KnowledgeCard[]; activeCategory: string; setActiveCategory: (category: string) => void; onOpenBook: (book: Book) => void; onNew: () => void }
+function LibraryPage({ books, cards, activeCategory, setActiveCategory, onOpenBook, onNew }: LibraryProps) {
   const shelfRef = useRef<HTMLDivElement>(null)
   const drag = useRef<{ startX: number; startScroll: number; moved: boolean } | null>(null)
   const scroll = (amount: number) => shelfRef.current?.scrollBy({ left: amount, behavior: 'smooth' })
   const categories = ['all', ...Array.from(new Set(books.map((book) => book.category)))]
   return <div className="page kg-library">
     <section className="page-heading"><div><p className="eyebrow">PHYSICAL SHELF · {books.length} VOLUMES</p><h1>我的书架</h1><p>沿着木质书架慢慢找书。点击任意一本书，打开它的完整阅读档案。</p></div><button className="primary-button" onClick={onNew}><Plus size={18} /> 新建书籍</button></section>
-    <div className="filterbar kg-filterbar"><button className={activeBookId === 'all' ? 'selected' : ''} onClick={() => setActiveBookId('all')}>全部藏书</button>{categories.slice(1).map((category) => <button className={activeBookId === category ? 'selected' : ''} key={category} onClick={() => setActiveBookId(activeBookId === category ? 'all' : category)}>{category}</button>)}</div>
+    <div className="filterbar kg-filterbar"><button className={activeCategory === 'all' ? 'selected' : ''} onClick={() => setActiveCategory('all')}>全部藏书</button>{categories.slice(1).map((category) => <button className={activeCategory === category ? 'selected' : ''} key={category} onClick={() => setActiveCategory(activeCategory === category ? 'all' : category)}>{category}</button>)}</div>
     <section className="kg-shelf-stage"><div className="kg-shelf-lamp" /><div className="kg-shelf-caption"><span>当前陈列</span><strong>{books.length} 本书 · {cards.filter((card) => books.some((book) => book.id === card.bookId)).length} 张知识卡片</strong></div><button className="kg-shelf-arrow left" aria-label="向左翻阅书架" onClick={() => scroll(-520)}><ChevronLeft /></button><button className="kg-shelf-arrow right" aria-label="向右翻阅书架" onClick={() => scroll(520)}><ChevronRight /></button><div className="kg-shelf-viewport" ref={shelfRef} onWheel={(event) => { if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) { event.currentTarget.scrollLeft += event.deltaY; event.preventDefault() } }} onPointerDown={(event) => { if ((event.target as HTMLElement).closest('.kg-book-spine')) return; drag.current = { startX: event.clientX, startScroll: event.currentTarget.scrollLeft, moved: false }; event.currentTarget.setPointerCapture(event.pointerId) }} onPointerMove={(event) => { if (!drag.current) return; const moved = Math.abs(event.clientX - drag.current.startX) > 6; if (moved) drag.current.moved = true; if (moved) event.currentTarget.scrollLeft = drag.current.startScroll - (event.clientX - drag.current.startX) }} onPointerUp={(event) => { if (!drag.current) return; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); drag.current = null }}>
       <div className="kg-shelf-row">{books.map((book, index) => <button key={book.id} className="kg-book-spine" style={{ '--spine': book.color, '--height': `${168 + (index % 4) * 17}px`, '--delay': `${index * 20}ms` } as React.CSSProperties} onClick={(event) => { if (drag.current?.moved) { event.preventDefault(); return } onOpenBook(book) }} aria-label={`打开《${book.title}》阅读档案`}><span className="spine-rule" /><span className="spine-title">{book.title}</span><span className="spine-author">{book.author}</span><span className="spine-count">{cards.filter((card) => card.bookId === book.id).length} 卡</span></button>)}{!books.length && <div className="kg-empty-shelf"><BookOpen size={28} /><strong>书架正在等待第一本书</strong><button onClick={onNew}>添加书籍</button></div>}</div>
     </div><div className="kg-shelf-plank" /></section>
@@ -366,16 +377,16 @@ function CardsPage({ cards, books, onOpenCard, onNew }: CardsProps) {
 }
 function KnowledgeCardView({ card, book, onClick }: { card: KnowledgeCard; book?: Book; onClick: () => void }) { return <button className="knowledge-card kg-knowledge-card" onClick={onClick}><span className={`kind-pill kind-${card.kind}`}>{CARD_KIND_LABEL[card.kind]}</span><h3>{card.title}</h3><p className="card-excerpt">{card.insight || card.excerpt}</p>{card.application && <p className="card-application"><Sparkles size={14} /> {card.application}</p>}<footer><span>{book?.title ?? '已删除书籍'}</span><span>{card.tags.slice(0, 2).join(' · ')}</span></footer></button> }
 
-type MapProps = { books: Book[]; cards: KnowledgeCard[]; activeBookId: string; setActiveBookId: (id: string) => void; onOpenBook: (book: Book, sectionId?: string) => void; onOpenCard: (card: KnowledgeCard) => void }
-function StructureMap({ books, cards, activeBookId, setActiveBookId, onOpenBook, onOpenCard }: MapProps) {
-  const focus = books.find((book) => book.id === activeBookId) ?? books[0]
+type MapProps = { books: Book[]; cards: KnowledgeCard[]; focusedBookId: string; setFocusedBookId: (id: string) => void; onOpenBook: (book: Book, sectionId?: string) => void; onOpenCard: (card: KnowledgeCard) => void }
+function StructureMap({ books, cards, focusedBookId, setFocusedBookId, onOpenBook, onOpenCard }: MapProps) {
+  const focus = books.find((book) => book.id === focusedBookId) ?? books[0]
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [kind, setKind] = useState<CardKind | 'all'>('all')
   if (!focus) return <div className="page"><div className="empty-state"><Network size={30} /><h2>知识地图等待第一本书</h2></div></div>
   const toggle = (id: string) => setExpanded((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next })
   const relevant = cards.filter((card) => card.bookId === focus.id)
   const manualRelations = relevant.flatMap((card) => card.relatedCardIds.map((id) => ({ from: card, to: cards.find((item) => item.id === id) }))).filter((pair): pair is { from: KnowledgeCard; to: KnowledgeCard } => Boolean(pair.to))
-  return <div className="page kg-map-page"><section className="page-heading"><div><p className="eyebrow">BOOK STRUCTURE MAP</p><h1>知识地图</h1><p>书籍是根，章节是枝，精选知识卡片是可以持续连接的叶子。</p></div><select className="map-book-select" value={focus.id} onChange={(event) => setActiveBookId(event.target.value)}>{books.map((book) => <option key={book.id} value={book.id}>{book.title}</option>)}</select></section><div className="map-toolbar"><div className="kind-filter"><button className={kind === 'all' ? 'selected' : ''} onClick={() => setKind('all')}>全部卡片</button>{(Object.keys(CARD_KIND_LABEL) as CardKind[]).map((item) => <button key={item} className={kind === item ? 'selected' : ''} onClick={() => setKind(item)}>{CARD_KIND_LABEL[item]}</button>)}</div><div><button className="soft-button" onClick={() => setExpanded(new Set(focus.sections.map((section) => section.id)))}>全部展开</button><button className="soft-button" onClick={() => setExpanded(new Set())}>收起</button></div></div><section className="structure-map-shell"><article className="map-root-node"><button onClick={() => onOpenBook(focus)}><BookOpen size={20} /><span>阅读档案</span><strong>《{focus.title}》</strong><small>{focus.sections.length} 个模块 · {relevant.length} 张卡片</small></button></article><div className="map-trunk" /><div className="map-section-grid">{focus.sections.map((section) => { const sectionCards = relevant.filter((card) => card.sectionId === section.id && (kind === 'all' || card.kind === kind)); const isOpen = expanded.has(section.id); return <article className={`map-section-node ${isOpen ? 'expanded' : ''}`} key={section.id}><div className="map-section-head"><button className="map-expand" aria-label={isOpen ? '收起章节' : '展开章节'} onClick={() => toggle(section.id)}><ChevronDown size={17} /></button><button onClick={() => onOpenBook(focus, section.id)}><span>{SECTION_KIND_LABEL[section.kind]}</span><strong>{section.title}</strong><small>{sectionCards.length} 张卡片</small></button></div>{isOpen && <div className="map-card-branch">{sectionCards.map((card) => <button className={`map-card-node kind-${card.kind}`} key={card.id} onClick={() => onOpenCard(card)}><span>{CARD_KIND_LABEL[card.kind]}</span>{card.title}</button>)}{!sectionCards.length && <small className="map-no-cards">本模块保留原始阅读内容</small>}</div>}</article> })}</div>{manualRelations.length > 0 && <section className="manual-relations"><h3><Link2 size={17} /> 手动双向关联</h3>{manualRelations.map(({ from, to }) => <button key={`${from.id}-${to.id}`} onClick={() => onOpenCard(from)}>{from.title}<span>······</span>{to.title}</button>)}</section>}</section></div>
+  return <div className="page kg-map-page"><section className="page-heading"><div><p className="eyebrow">BOOK STRUCTURE MAP</p><h1>知识地图</h1><p>书籍是根，章节是枝，精选知识卡片是可以持续连接的叶子。</p></div><select className="map-book-select" value={focus.id} onChange={(event) => setFocusedBookId(event.target.value)}>{books.map((book) => <option key={book.id} value={book.id}>{book.title}</option>)}</select></section><div className="map-toolbar"><div className="kind-filter"><button className={kind === 'all' ? 'selected' : ''} onClick={() => setKind('all')}>全部卡片</button>{(Object.keys(CARD_KIND_LABEL) as CardKind[]).map((item) => <button key={item} className={kind === item ? 'selected' : ''} onClick={() => setKind(item)}>{CARD_KIND_LABEL[item]}</button>)}</div><div><button className="soft-button" onClick={() => setExpanded(new Set(focus.sections.map((section) => section.id)))}>全部展开</button><button className="soft-button" onClick={() => setExpanded(new Set())}>收起</button></div></div><section className="structure-map-shell"><article className="map-root-node"><button onClick={() => onOpenBook(focus)}><BookOpen size={20} /><span>阅读档案</span><strong>《{focus.title}》</strong><small>{focus.sections.length} 个模块 · {relevant.length} 张卡片</small></button></article><div className="map-trunk" /><div className="map-section-grid">{focus.sections.map((section) => { const sectionCards = relevant.filter((card) => card.sectionId === section.id && (kind === 'all' || card.kind === kind)); const isOpen = expanded.has(section.id); return <article className={`map-section-node ${isOpen ? 'expanded' : ''}`} key={section.id}><div className="map-section-head"><button className="map-expand" aria-label={isOpen ? '收起章节' : '展开章节'} onClick={() => toggle(section.id)}><ChevronDown size={17} /></button><button onClick={() => onOpenBook(focus, section.id)}><span>{SECTION_KIND_LABEL[section.kind]}</span><strong>{section.title}</strong><small>{sectionCards.length} 张卡片</small></button></div>{isOpen && <div className="map-card-branch">{sectionCards.map((card) => <button className={`map-card-node kind-${card.kind}`} key={card.id} onClick={() => onOpenCard(card)}><span>{CARD_KIND_LABEL[card.kind]}</span>{card.title}</button>)}{!sectionCards.length && <small className="map-no-cards">本模块保留原始阅读内容</small>}</div>}</article> })}</div>{manualRelations.length > 0 && <section className="manual-relations"><h3><Link2 size={17} /> 手动双向关联</h3>{manualRelations.map(({ from, to }) => <button key={`${from.id}-${to.id}`} onClick={() => onOpenCard(from)}>{from.title}<span>······</span>{to.title}</button>)}</section>}</section></div>
 }
 function AssistantPage({ books, cards }: { books: Book[]; cards: KnowledgeCard[] }) {
   const [question, setQuestion] = useState('')
