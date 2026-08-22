@@ -88,6 +88,9 @@
   .topbar .top-actions .cloud-top-action{display:inline-flex!important;visibility:visible!important;opacity:1!important;width:40px!important;height:40px!important;padding:0!important;justify-content:center;align-items:center;flex:0 0 40px!important;position:relative!important;z-index:4!important}
   .topbar .top-actions .cloud-top-action span{display:none!important}
   .topbar .searchbox{max-width:none!important;flex:1 1 0!important}
+}
+/* The desktop navigation disappears at 780px, so expose login all the way through that breakpoint. */
+@media(max-width:780px){
   .mobile-cloud-access{position:fixed!important;right:16px!important;bottom:max(18px,env(safe-area-inset-bottom))!important;z-index:70!important;display:inline-flex!important;align-items:center!important;gap:7px!important;min-height:44px!important;padding:0 15px!important;border:1px solid rgba(225,207,168,.76)!important;border-radius:999px!important;background:#294438!important;color:#fffdf6!important;box-shadow:0 12px 28px rgba(31,47,38,.28)!important;font:700 .82rem/1 inherit!important;letter-spacing:.01em!important;cursor:pointer!important}
   .mobile-cloud-access.synced{background:#315e48!important;border-color:#c9d7a6!important}
   .mobile-cloud-access.syncing svg{animation:cloud-spin 1s linear infinite}
