@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, FormEvent, ReactNode } from 'react'
 import {
   BookOpen, Bot, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
-  Download, FileInput, FilePlus2, Grid2X2, Library, Link2, Network, NotebookPen, Pencil,
-  Plus, Search, Sparkles, Trash2, Upload, X,
+  Cloud, Download, FileInput, FilePlus2, Grid2X2, Library, Link2, LogIn, LogOut, Network, NotebookPen, Pencil,
+  Plus, RefreshCw, Search, Sparkles, Trash2, Upload, X,
 } from 'lucide-react'
 import './App.css'
 import { pdcaSampleMarkdown } from './pdcaSample'
@@ -13,11 +13,14 @@ import {
   type KnowledgeCard, type ParsedMarkdown, type View,
 } from './archiveTypes'
 import { parseMarkdownDocument } from './markdownArchive'
+import { pullGarden, pushGarden, refreshSession, signInWithPassword, signOutFromCloud, signUpWithPassword, type CloudSession } from './cloudSync'
 
 const STORAGE_KEY = 'knowledge-garden-v3'
 const LEGACY_STORAGE_KEY = 'knowledge-garden-v2'
+const CLOUD_SESSION_KEY = 'knowledge-garden-supabase-session'
 const COLORS = ['#6f8390', '#9a6654', '#657d69', '#a8864e', '#667d83', '#7c6d88']
 const now = () => new Date().toISOString()
+type SyncStatus = 'local' | 'syncing' | 'synced' | 'error'
 const uid = (prefix: string) => `${prefix}-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`
 const emptyBook = (index = 0): Book => ({
   id: uid('book'), title: '未命名书籍', author: '未知作者', category: '未分类', status: 'to-read', rating: 0,
@@ -116,6 +119,11 @@ export default function App() {
   const [cardModal, setCardModal] = useState<KnowledgeCard | 'new' | null>(null)
   const [importDraft, setImportDraft] = useState<ParsedMarkdown | null>(null)
   const [toast, setToast] = useState('')
+  const [cloudSession, setCloudSession] = useState<CloudSession | null>(null)
+  const [cloudReady, setCloudReady] = useState(false)
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('local')
+  const [syncDetail, setSyncDetail] = useState('仅保存在此设备')
+  const [syncModal, setSyncModal] = useState(false)
   const jsonInputRef = useRef<HTMLInputElement>(null)
   const markdownInputRef = useRef<HTMLInputElement>(null)
 
@@ -123,6 +131,84 @@ export default function App() {
   const selectedBook = books.find((book) => book.id === selectedBookId) ?? null
   const selectedCard = cards.find((card) => card.id === selectedCardId) ?? null
   const notify = (message: string) => { setToast(message); window.setTimeout(() => setToast(''), 2800) }
+  const gardenSnapshot = (): GardenData => ({ version: 3, books, cards, seededPdca: true })
+
+  useEffect(() => {
+    let cancelled = false
+    const restoreSession = async () => {
+      try {
+        const raw = localStorage.getItem(CLOUD_SESSION_KEY)
+        if (!raw) return
+        const stored = JSON.parse(raw) as CloudSession
+        const expiresSoon = stored.expires_at && stored.expires_at < Math.floor(Date.now() / 1000) + 60
+        const session = expiresSoon ? await refreshSession(stored.refresh_token) : stored
+        if (!cancelled) { setCloudSession(session); localStorage.setItem(CLOUD_SESSION_KEY, JSON.stringify(session)) }
+      } catch { localStorage.removeItem(CLOUD_SESSION_KEY) }
+    }
+    void restoreSession()
+    return () => { cancelled = true }
+  }, [])
+
+  useEffect(() => {
+    if (!cloudSession) { setCloudReady(false); setSyncStatus('local'); setSyncDetail('仅保存在此设备'); return }
+    let cancelled = false
+    const loadCloudGarden = async () => {
+      setCloudReady(false); setSyncStatus('syncing'); setSyncDetail('正在连接你的私人知识库…')
+      try {
+        const remote = await pullGarden(cloudSession)
+        if (cancelled) return
+        if (remote) {
+          const normalized = normalizeData(remote.garden)
+          if (normalized) { setBooks(normalized.books); setCards(normalized.cards); localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized)) }
+          setSyncDetail(`已从云端恢复 · ${new Date(remote.updatedAt).toLocaleString('zh-CN')}`)
+        } else {
+          await pushGarden(cloudSession, gardenSnapshot())
+          if (cancelled) return
+          setSyncDetail('已将此设备的知识库首次保存到云端')
+        }
+        setSyncStatus('synced'); setCloudReady(true)
+      } catch (error) {
+        if (!cancelled) { setSyncStatus('error'); setSyncDetail(error instanceof Error ? error.message : '云端同步失败') }
+      }
+    }
+    void loadCloudGarden()
+    return () => { cancelled = true }
+  // A new session is the only trigger for initial cloud restoration.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cloudSession?.access_token])
+
+  useEffect(() => {
+    if (!cloudSession || !cloudReady) return
+    const timer = window.setTimeout(() => {
+      setSyncStatus('syncing'); setSyncDetail('正在安全同步最新改动…')
+      void pushGarden(cloudSession, gardenSnapshot()).then(() => { setSyncStatus('synced'); setSyncDetail(`已同步 · ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`) }).catch((error: unknown) => { setSyncStatus('error'); setSyncDetail(error instanceof Error ? error.message : '云端同步失败') })
+    }, 1200)
+    return () => window.clearTimeout(timer)
+  // Synchronize only actual garden content; session readiness is handled above.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [books, cards, cloudReady, cloudSession?.access_token])
+
+  async function authenticate(mode: 'sign-in' | 'sign-up', email: string, password: string) {
+    const session = mode === 'sign-in' ? await signInWithPassword(email, password) : await signUpWithPassword(email, password)
+    setCloudSession(session); localStorage.setItem(CLOUD_SESSION_KEY, JSON.stringify(session)); setSyncModal(false); notify(mode === 'sign-in' ? '已登录，正在同步你的知识库' : '账号创建成功，正在建立私人云端知识库')
+  }
+
+  async function syncNow() {
+    if (!cloudSession) { setSyncModal(true); return }
+    setSyncStatus('syncing'); setSyncDetail('正在手动同步…')
+    try { await pushGarden(cloudSession, gardenSnapshot()); setSyncStatus('synced'); setSyncDetail(`已同步 · ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`); notify('已同步到云端') } catch (error) { setSyncStatus('error'); setSyncDetail(error instanceof Error ? error.message : '云端同步失败') }
+  }
+
+  async function restoreCloud() {
+    if (!cloudSession) return
+    setSyncStatus('syncing'); setSyncDetail('正在从云端恢复…')
+    try { const remote = await pullGarden(cloudSession); if (!remote) { notify('云端还没有备份，已保留本地资料'); setSyncStatus('synced'); return }; const normalized = normalizeData(remote.garden); if (normalized) { setBooks(normalized.books); setCards(normalized.cards); localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized)); notify('已从云端恢复知识库') }; setSyncStatus('synced'); setSyncDetail(`已从云端恢复 · ${new Date(remote.updatedAt).toLocaleString('zh-CN')}`) } catch (error) { setSyncStatus('error'); setSyncDetail(error instanceof Error ? error.message : '云端恢复失败') }
+  }
+
+  async function disconnectCloud() {
+    if (!cloudSession) return
+    await signOutFromCloud(cloudSession); localStorage.removeItem(CLOUD_SESSION_KEY); setCloudSession(null); setCloudReady(false); setSyncModal(false); notify('已退出云同步账号，本地资料仍然保留')
+  }
   const visibleBooks = books.filter((book) => bookToText(book).includes(query.toLowerCase()) && (activeBookId === 'all' || book.id === activeBookId))
   const visibleCards = cards.filter((card) => cardToText(card).includes(query.toLowerCase()) && (activeBookId === 'all' || card.bookId === activeBookId))
   const openBook = (book: Book, sectionId?: string) => { setSelectedBookId(book.id); setArchiveSectionId(sectionId); setSelectedCardId(null) }
@@ -215,7 +301,7 @@ export default function App() {
     <aside className="sidebar kg-sidebar">
       <div className="brand"><span className="brand-mark"><BrainCircuit size={20} /></span><div><strong>我的第二大脑</strong><small>Personal Knowledge Garden</small></div></div>
       <nav>{nav.map(([id, label, Icon]) => <button className={view === id ? 'active' : ''} onClick={() => setView(id)} key={id}><Icon size={18} /><span>{label}</span></button>)}</nav>
-      <div className="sidebar-bottom"><button onClick={() => markdownInputRef.current?.click()}><FileInput size={17} /> 导入 Markdown</button><button onClick={exportData}><Download size={17} /> 导出备份</button><button onClick={() => jsonInputRef.current?.click()}><Upload size={17} /> 导入 JSON</button></div>
+      <div className="sidebar-bottom"><button className={`cloud-sync-trigger ${syncStatus}`} onClick={() => setSyncModal(true)}><Cloud size={17} /><span>{cloudSession ? '云端同步已连接' : '登录并开启同步'}</span><small>{cloudSession ? (syncStatus === 'syncing' ? '同步中' : syncStatus === 'error' ? '需要处理' : '已连接') : '跨设备使用'}</small></button><button onClick={() => markdownInputRef.current?.click()}><FileInput size={17} /> 导入 Markdown</button><button onClick={exportData}><Download size={17} /> 导出备份</button><button onClick={() => jsonInputRef.current?.click()}><Upload size={17} /> 导入 JSON</button></div>
     </aside>
     <section className="main-content kg-main">
       <header className="topbar"><div className="searchbox"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索书籍、章节、知识卡片…" /></div><div className="top-actions"><button className="soft-button" onClick={() => markdownInputRef.current?.click()}><FilePlus2 size={17} /> 结构化导入</button><button className="primary-button" onClick={() => setBookModal('new')}><Plus size={18} /> 新建书籍</button></div></header>
@@ -232,6 +318,7 @@ export default function App() {
     {bookModal && <BookModal book={bookModal === 'new' ? null : bookModal} onClose={() => setBookModal(null)} onSave={saveBook} onStructuredImport={() => { setBookModal(null); markdownInputRef.current?.click() }} />}
     {cardModal && <CardModal card={cardModal === 'new' ? null : cardModal} books={books} allCards={cards} defaultBookId={selectedBookId ?? undefined} defaultSectionId={archiveSectionId} onClose={() => setCardModal(null)} onSave={saveCard} />}
     {importDraft && <MarkdownImportModal parsed={importDraft} existingBook={books.find((book) => book.title.trim() === importDraft.title.trim())} onClose={() => setImportDraft(null)} onSave={applyMarkdownImport} />}
+    {syncModal && <CloudSyncModal session={cloudSession} status={syncStatus} detail={syncDetail} onClose={() => setSyncModal(false)} onAuthenticate={authenticate} onSync={syncNow} onRestore={restoreCloud} onDisconnect={disconnectCloud} />}
     {toast && <div className="toast"><Check size={17} /> {toast}</div>}
   </main>
 }
@@ -336,4 +423,28 @@ function MarkdownImportModal({ parsed, existingBook, onClose, onSave }: Markdown
   const distribution = (Object.keys(CARD_KIND_LABEL) as CardKind[]).map((kind) => [kind, parsed.cards.filter((card) => card.kind === kind).length] as const).filter(([, count]) => count)
   const submit = (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const form = new FormData(event.currentTarget); onSave(parsed, { title: String(form.get('title') ?? parsed.title), author: String(form.get('author') ?? ''), category: String(form.get('category') ?? ''), status: String(form.get('status') ?? 'to-read') as BookStatus, rating: Number(form.get('rating') ?? 0), tags: String(form.get('tags') ?? '').split(/[，,]/).map((tag) => tag.trim()).filter(Boolean), color }, mode) }
   return <div className="overlay"><form className="modal markdown-import-modal" onSubmit={submit}><header><div><p className="eyebrow">STRUCTURED MARKDOWN IMPORT</p><h2>确认阅读档案</h2></div><button type="button" className="icon-button" onClick={onClose}><X /></button></header><section className="import-summary"><div><span>识别书名</span><strong>《{parsed.title}》</strong></div><div><span>内容模块</span><strong>{parsed.sections.length} 个</strong></div><div><span>精选卡片</span><strong>{parsed.cards.length} 张</strong></div><div><span>资料来源</span><strong>{parsed.sources.length} 条</strong></div></section><section className="import-distribution"><h3>卡片类型分布</h3><div>{distribution.map(([kind, count]) => <span key={kind} className={`kind-pill kind-${kind}`}>{CARD_KIND_LABEL[kind]} {count}</span>)}</div>{parsed.unmatchedHeadings.length > 0 && <p>其余 {parsed.unmatchedHeadings.length} 个标题将保留在阅读档案中，不会机械拆成卡片。</p>}</section>{existingBook && <section className="duplicate-import"><strong>检测到同名书籍《{existingBook.title}》</strong><p>更新会替换本次 Markdown 导入的章节和卡片，保留网站中手动添加的卡片、阅读状态、评分、标签和书脊颜色。</p><div><label><input type="radio" checked={mode === 'update'} onChange={() => setMode('update')} /> 更新现有书籍</label><label><input type="radio" checked={mode === 'new'} onChange={() => setMode('new')} /> 另存为新书</label></div></section>}<div className="form-grid"><label>书名<input name="title" defaultValue={parsed.title} required disabled={mode === 'update'} /></label><label>作者<input name="author" defaultValue={existingBook?.author ?? (parsed.title === '高效PDCA工作术' ? '富田和成' : '')} disabled={mode === 'update'} /></label><label>分类<input name="category" defaultValue={existingBook?.category ?? ''} disabled={mode === 'update'} /></label><label>阅读状态<select name="status" defaultValue={existingBook?.status ?? 'to-read'} disabled={mode === 'update'}>{(Object.keys(BOOK_STATUS_LABEL) as BookStatus[]).map((status) => <option key={status} value={status}>{BOOK_STATUS_LABEL[status]}</option>)}</select></label><label>评分<select name="rating" defaultValue={existingBook?.rating ?? 0} disabled={mode === 'update'}>{[0,1,2,3,4,5].map((rating) => <option key={rating} value={rating}>{rating ? `${rating} / 5` : '未评分'}</option>)}</select></label><label>标签<input name="tags" defaultValue={existingBook?.tags.join('，') ?? ''} disabled={mode === 'update'} /></label></div>{mode === 'new' && <div className="color-picker"><span>书脊颜色</span>{COLORS.map((item) => <button type="button" aria-label={`选择书脊颜色 ${item}`} className={color === item ? 'selected' : ''} key={item} style={{ background: item }} onClick={() => setColor(item)} />)}</div>}<footer><button type="button" className="soft-button" onClick={onClose}>取消</button><button className="primary-button">{mode === 'update' ? '更新现有书籍' : '创建结构化书籍'}</button></footer></form></div>
+}
+
+type CloudSyncModalProps = {
+  session: CloudSession | null
+  status: SyncStatus
+  detail: string
+  onClose: () => void
+  onAuthenticate: (mode: 'sign-in' | 'sign-up', email: string, password: string) => Promise<void>
+  onSync: () => Promise<void>
+  onRestore: () => Promise<void>
+  onDisconnect: () => Promise<void>
+}
+function CloudSyncModal({ session, status, detail, onClose, onAuthenticate, onSync, onRestore, onDisconnect }: CloudSyncModalProps) {
+  const [mode, setMode] = useState<'sign-in' | 'sign-up'>('sign-in')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); const form = new FormData(event.currentTarget); const email = String(form.get('email') ?? '').trim(); const password = String(form.get('password') ?? '')
+    if (!email || password.length < 6) { setError('请输入有效邮箱，密码至少需要 6 位。'); return }
+    setBusy(true); setError('')
+    try { await onAuthenticate(mode, email, password) } catch (reason) { setError(reason instanceof Error ? reason.message : '登录失败，请稍后重试。') } finally { setBusy(false) }
+  }
+  const stateLabel: Record<SyncStatus, string> = { local: '本地模式', syncing: '同步中', synced: '云端已同步', error: '需要处理' }
+  return <div className="overlay"><section className="modal cloud-sync-modal" role="dialog" aria-modal="true" aria-label="云端同步"><header><div><p className="eyebrow">PRIVATE CLOUD SYNC</p><h2>跨设备同步</h2></div><button className="icon-button" onClick={onClose} aria-label="关闭云同步"><X /></button></header>{session ? <div className="cloud-connected"><div className={`cloud-status ${status}`}><Cloud size={23} /><div><strong>{stateLabel[status]}</strong><span>{detail}</span></div></div><div className="cloud-account"><span>同步账号</span><strong>{session.user.email ?? '已登录账户'}</strong><small>你的阅读档案将加密传输并仅对该账号可见。</small></div><div className="cloud-actions"><button className="primary-button" onClick={() => void onSync()}><RefreshCw size={17} /> 立即同步</button><button className="soft-button" onClick={() => void onRestore()}><Download size={17} /> 从云端恢复</button><button className="cloud-signout" onClick={() => void onDisconnect()}><LogOut size={16} /> 退出账号</button></div><p className="cloud-footnote">每次新增、编辑、导入或删除书籍与知识卡片后，系统会在约 1 秒后自动保存到云端。手机登录同一账号即可同步。</p></div> : <><p className="cloud-intro">登录一个私人账号后，电脑和手机会使用同一份知识花园。首次登录会自动上传当前设备的资料；后续设备登录时会从云端恢复。</p><div className="cloud-auth-tabs"><button className={mode === 'sign-in' ? 'active' : ''} onClick={() => setMode('sign-in')}>登录</button><button className={mode === 'sign-up' ? 'active' : ''} onClick={() => setMode('sign-up')}>创建账号</button></div><form className="cloud-auth-form" onSubmit={submit}><label>邮箱<input type="email" name="email" autoComplete="email" placeholder="you@example.com" required /></label><label>密码<input type="password" name="password" autoComplete={mode === 'sign-in' ? 'current-password' : 'new-password'} placeholder="至少 6 位" minLength={6} required /></label>{error && <p className="cloud-error">{error}</p>}<button className="primary-button" disabled={busy}>{mode === 'sign-in' ? <><LogIn size={17} /> {busy ? '正在登录…' : '登录并同步'}</> : <><Cloud size={17} /> {busy ? '正在创建…' : '创建账号并同步'}</>}</button></form><p className="cloud-footnote">请在电脑和手机上使用同一个邮箱登录。你的本地 JSON 备份功能仍会保留。</p></>}</section></div>
 }
