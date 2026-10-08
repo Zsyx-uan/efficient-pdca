@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --import ./scripts/register-typescript.mjs --test tests/*.test.mjs",
+    "test:browser": "node --import ./scripts/register-typescript.mjs tests/browser-regression.mjs"
   },
   "dependencies": {
     "lucide-react": "^1.33.0",
